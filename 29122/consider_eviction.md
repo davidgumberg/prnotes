@@ -1,37 +1,40 @@
 # PeerManagerImpl::ConsiderEviction
 
 ## Description
+`ConsiderEviction` is triggered by `PeerManagerImpl::SendMessages`
 1. Acquire the peer's `CNodeState`
 2. If it is not one of the four peers protected from eviction, and it is a full outbound or blockrelay connection (no inbound, manual or feelers)
     <details>
-        <summary>Protected Peers</summary>
-        - What qualifies a protected peer?
-            - Not queued for eviction.
-                - `!pfrom.fDisconnect`
-            - Is a full outbound connection (no block only peers)
-                - `m_conn_type == ConnectionType::OUTBOUND_FULL_RELAY`
-            - Has a chain tip with at least as much work as ours
-                - `nodestate->pindexBestKnownBlock->nChainWork >= m_chainman.ActiveChain().Tip()->nChainWork`
-            - Nominated when we had fewer than four protected peers 
-                ```cpp
-                static constexpr int32_t MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT = 4;
-                m_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT`
-                ```
-            - Nominated by sending us a valid header that triggered an `UpdatePeerStateForReceivedHeaders`
-                ```cpp
-                if (!pfrom.fDisconnect && pfrom.IsFullOutboundConn() && nodestate->pindexBestKnownBlock != nullptr) {
-                    if (m_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT && nodestate->pindexBestKnownBlock->nChainWork >= m_chainman.ActiveChain().Tip()->nChainWork && !nodestate->m_chain_sync.m_protect) {
-                        LogPrint(BCLog::NET, "Protecting outbound peer=%d from eviction\n", pfrom.GetId());
-                        nodestate->m_chain_sync.m_protect = true;
-                        ++m_outbound_peers_with_protect_from_disconnect;
-                    }
+    <summary>Protected Peers</summary>
+
+    - What qualifies a protected peer?
+        - Not queued for eviction.
+            - `!pfrom.fDisconnect`
+        - Is a full outbound connection (no block only peers)
+            - `m_conn_type == ConnectionType::OUTBOUND_FULL_RELAY`
+        - Has a chain tip with at least as much work as ours
+            - `nodestate->pindexBestKnownBlock->nChainWork >= m_chainman.ActiveChain().Tip()->nChainWork`
+        - Nominated when we had fewer than four protected peers 
+            ```cpp
+            static constexpr int32_t MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT = 4;
+            m_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT`
+            ```
+        - Nominated by sending us a valid header that triggered an `UpdatePeerStateForReceivedHeaders`
+            ```cpp
+            if (!pfrom.fDisconnect && pfrom.IsFullOutboundConn() && nodestate->pindexBestKnownBlock != nullptr) {
+                if (m_outbound_peers_with_protect_from_disconnect < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT && nodestate->pindexBestKnownBlock->nChainWork >= m_chainman.ActiveChain().Tip()->nChainWork && !nodestate->m_chain_sync.m_protect) {
+                    LogPrint(BCLog::NET, "Protecting outbound peer=%d from eviction\n", pfrom.GetId());
+                    nodestate->m_chain_sync.m_protect = true;
+                    ++m_outbound_peers_with_protect_from_disconnect;
                 }
-                ```
-        - *Why* do we protect 4 peers from eviction?
-            - The motivation is a bit unclear: outbound peer eviction was introduced in [#11490](https://github.com/bitcoin/bitcoin/pull/11490)
-            - "We protect 4 of our outbound peers (who provide some "good" headers chains, ie a chain with at least as much work as our tip at some point)
-              from being subject to this logic, to prevent excessive network topology changes as a result of this algorithm, while still ensuring that we
-              have a reasonable number of nodes not known to be on bogus chains.
+            }
+            ```
+    - *Why* do we protect 4 peers from eviction?
+        - The motivation is a bit unclear: outbound peer eviction was introduced in [#11490](https://github.com/bitcoin/bitcoin/pull/11490)
+        - "We protect 4 of our outbound peers (who provide some "good" headers chains, ie a chain with at least as much work as our tip at some point)
+          from being subject to this logic, to prevent excessive network topology changes as a result of this algorithm, while still ensuring that we
+          have a reasonable number of nodes not known to be on bogus chains.
+
     </details>
 
 3. If the peer has sent us a block with at least much work as our current tip, reset their `m_chain_sync.timeout`
