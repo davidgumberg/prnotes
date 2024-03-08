@@ -1,4 +1,4 @@
-bitcoin_dir="$HOME/dev/bitcoin"
+bitcoin_dir="$HOME/dev/btc/bitcoin"
 
 test_absolute_dir="$HOME/dev/test_data"
 test_relative_dir="test_data"
