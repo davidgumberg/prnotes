@@ -30,7 +30,7 @@
             }
             ```
     - *Why* do we protect 4 peers from eviction?
-        - The motivation is a bit unclear: outbound peer eviction was introduced in [#11490](https://github.com/bitcoin/bitcoin/pull/11490)
+        - The motivation is a bit unclear to me: outbound peer eviction was introduced in [#11490](https://github.com/bitcoin/bitcoin/pull/11490)
         - "We protect 4 of our outbound peers (who provide some "good" headers chains, ie a chain with at least as much work as our tip at some point)
           from being subject to this logic, to prevent excessive network topology changes as a result of this algorithm, while still ensuring that we
           have a reasonable number of nodes not known to be on bogus chains.
@@ -56,16 +56,16 @@
 ## Annotated `PeerManagerImpl::ConsiderEviction`
 [] in comments indicate my notes
 ```cpp
-/* [CNode and Peer both describe our peer that we are considering for eviction.
- * The distinction was added in (#19607)[https://github.com/bitcoin/bitcoin/pull/19607]
- * jnewbery says: 
- *      CNode in net.h, which should just contain connection layer data (eg socket, send/recv buffers, etc), but currently also contains some application layer data (eg tx/block inventory).
-        Peer, which is for p2p application layer data, and doesn't require cs_main.
-        CNodeState in net processing, which contains p2p application layer data, but requires cs_main to be locked for access
- * it seems the main bit of application layer data still managed by CNode is eviction!]
+/* [ CNode and Peer both describe our peer that we are considering for eviction.
+ *   The distinction was added in (#19607)[https://github.com/bitcoin/bitcoin/pull/19607]
+ *   jnewbery says: 
+ *      CNode in net.h, which should just contain connection layer data (eg socket,
+ *      send/recv buffers, etc), but currently also contains some application layer data (eg tx/block inventory).
+ *      Peer, which is for p2p application layer data, and doesn't require cs_main.
+ *      CNodeState in net processing, which contains p2p application layer data, but requires
+ *      cs_main to be locked for access it seems the main bit of application layer data still
+ *      managed by CNode is eviction!]
  */
-
-        
 
 void PeerManagerImpl::ConsiderEviction(CNode& pto, Peer& peer, std::chrono::seconds time_in_seconds)
 {
