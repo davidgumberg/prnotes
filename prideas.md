@@ -1,0 +1,3 @@
+- Add hostname support to `disconnectnode` which only works with addresses at present.
+- `getaddednodeinfo` expose v2 flags of added nodes
+- Add CoinGrinder unit tests
