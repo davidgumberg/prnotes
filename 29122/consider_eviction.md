@@ -4,14 +4,20 @@
 `ConsiderEviction` is triggered by `PeerManagerImpl::SendMessages`
 1. Acquire the peer's `CNodeState`
 2. If it is not one of the four peers protected from eviction, and it is a full outbound or blockrelay connection (no inbound, manual or feelers)
+
     <details>
+
     <summary>Protected Peers</summary>
 
     - What qualifies a protected peer?
         - Not queued for eviction.
-            - `!pfrom.fDisconnect`
+        ```cpp
+        !pfrom.fDisconnect`
+        ```
         - Is a full outbound connection (no block only peers)
-            - `m_conn_type == ConnectionType::OUTBOUND_FULL_RELAY`
+        ```cpp
+        m_conn_type == ConnectionType::OUTBOUND_FULL_RELAY`
+        ```
         - Has a chain tip with at least as much work as ours
             - `nodestate->pindexBestKnownBlock->nChainWork >= m_chainman.ActiveChain().Tip()->nChainWork`
         - Nominated when we had fewer than four protected peers 
@@ -33,11 +39,11 @@
         - The motivation is a bit unclear to me: outbound peer eviction was introduced in [#11490](https://github.com/bitcoin/bitcoin/pull/11490)
         - "We protect 4 of our outbound peers (who provide some "good" headers chains, ie a chain with at least as much work as our tip at some point)
           from being subject to this logic, to prevent excessive network topology changes as a result of this algorithm, while still ensuring that we
-          have a reasonable number of nodes not known to be on bogus chains.
+          have a reasonable number of nodes not known to be on bogus chains."
 
     </details>
 
-3. If the peer has sent us a block with at least much work as our current tip, reset their `m_chain_sync.timeout`
+3. If the peer has sent us a block with at least much work as our current tip, reset their `m_chain_sync.timeout`.
 4. Otherwise, they have not sent us a tip with at least as much work as ours, **now** if
     - we are noticing for the first time (`m_timeout ==  0`)
     - OR
