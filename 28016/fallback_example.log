@@ -1,0 +1,144 @@
+2024-04-04T15:26:37Z Bitcoin Core version v26.99.0-2842e51a246b (release build)
+2024-04-04T15:26:37Z Signet derived magic (message start): 0a03cf40
+2024-04-04T15:26:37Z Script verification uses 11 additional threads
+2024-04-04T15:26:37Z Using the 'x86_shani(1way,2way)' SHA256 implementation
+2024-04-04T15:26:37Z Using RdSeed as an additional entropy source
+2024-04-04T15:26:37Z Using RdRand as an additional entropy source
+2024-04-04T15:26:37Z Default data directory /home/bezel/.bitcoin
+2024-04-04T15:26:37Z Using data directory /tmp/28016/signet
+2024-04-04T15:26:37Z Config file: /tmp/28016/bitcoin.conf (not found, skipping)
+2024-04-04T15:26:37Z Command-line arg: datadir="/tmp/28016/"
+2024-04-04T15:26:37Z Command-line arg: debug="net"
+2024-04-04T15:26:37Z Command-line arg: seednode="bitcoin.achow101.com:38333"
+2024-04-04T15:26:37Z Command-line arg: signet=""
+2024-04-04T15:26:37Z Using at most 125 automatic connections (1024 file descriptors available)
+2024-04-04T15:26:37Z Using 16 MiB out of 16 MiB requested for signature cache, able to store 524288 elements
+2024-04-04T15:26:37Z Using 16 MiB out of 16 MiB requested for script execution cache, able to store 524288 elements
+2024-04-04T15:26:37Z scheduler thread start
+2024-04-04T15:26:37Z Binding RPC on address ::1 port 38332
+2024-04-04T15:26:37Z Binding RPC on address [OMITTED IPv4 ADDRESS] port 38332
+2024-04-04T15:26:37Z Using random cookie authentication.
+2024-04-04T15:26:37Z Generated RPC authentication cookie /tmp/28016/signet/.cookie
+2024-04-04T15:26:37Z Starting HTTP server with 4 worker threads
+2024-04-04T15:26:37Z Using wallet directory /tmp/28016/signet/wallets
+2024-04-04T15:26:37Z init message: Verifying wallet(s)…
+2024-04-04T15:26:37Z Using /16 prefix for IP bucketing
+2024-04-04T15:26:37Z init message: Loading P2P addresses…
+2024-04-04T15:26:37Z Creating peers.dat because the file was not found ("/tmp/28016/signet/peers.dat")
+2024-04-04T15:26:37Z init message: Loading banlist…
+2024-04-04T15:26:37Z Recreating the banlist database
+2024-04-04T15:26:37Z [net] Flushed 0 banned node addresses/subnets to disk  0ms
+2024-04-04T15:26:37Z [net] setting try another outbound peer=false
+2024-04-04T15:26:37Z SetNetworkActive: true
+2024-04-04T15:26:37Z /tmp/28016/signet/fee_estimates.dat is not found. Continue anyway.
+2024-04-04T15:26:37Z Script verification uses 11 additional threads
+2024-04-04T15:26:37Z Cache configuration:
+2024-04-04T15:26:37Z * Using 2.0 MiB for block index database
+2024-04-04T15:26:37Z * Using 8.0 MiB for chain state database
+2024-04-04T15:26:37Z * Using 440.0 MiB for in-memory UTXO set (plus up to 286.1 MiB of unused mempool space)
+2024-04-04T15:26:37Z init message: Loading block index…
+2024-04-04T15:26:37Z Assuming ancestors of block 0000013d778ba3f914530f11f6b69869c9fab54acff85acd7b8201d111f19b7f have valid signatures.
+2024-04-04T15:26:37Z Setting nMinimumChainWork=000000000000000000000000000000000000000000000000000001ad46be4862
+2024-04-04T15:26:37Z Opening LevelDB in /tmp/28016/signet/blocks/index
+2024-04-04T15:26:37Z Opened LevelDB successfully
+2024-04-04T15:26:37Z Using obfuscation key for /tmp/28016/signet/blocks/index: 0000000000000000
+2024-04-04T15:26:37Z LoadBlockIndexDB: last block file = 0
+2024-04-04T15:26:37Z LoadBlockIndexDB: last block file info: CBlockFileInfo(blocks=0, size=0, heights=0...0, time=1970-01-01...1970-01-01)
+2024-04-04T15:26:37Z Checking all blk files are present...
+2024-04-04T15:26:37Z Initializing databases...
+2024-04-04T15:26:37Z Initializing chainstate Chainstate [ibd] @ height -1 (null)
+2024-04-04T15:26:37Z Opening LevelDB in /tmp/28016/signet/chainstate
+2024-04-04T15:26:37Z Opened LevelDB successfully
+2024-04-04T15:26:37Z Wrote new obfuscate key for /tmp/28016/signet/chainstate: 821abddc1ab17c99
+2024-04-04T15:26:37Z Using obfuscation key for /tmp/28016/signet/chainstate: 821abddc1ab17c99
+2024-04-04T15:26:37Z Opening LevelDB in /tmp/28016/signet/chainstate
+2024-04-04T15:26:37Z Opened LevelDB successfully
+2024-04-04T15:26:37Z Using obfuscation key for /tmp/28016/signet/chainstate: 821abddc1ab17c99
+2024-04-04T15:26:37Z [Chainstate [ibd] @ height -1 (null)] resized coinsdb cache to 8.0 MiB
+2024-04-04T15:26:37Z [Chainstate [ibd] @ height -1 (null)] resized coinstip cache to 440.0 MiB
+2024-04-04T15:26:37Z init message: Verifying blocks…
+2024-04-04T15:26:37Z  block index              12ms
+2024-04-04T15:26:37Z Setting NODE_NETWORK on non-prune mode
+2024-04-04T15:26:37Z initload thread start
+2024-04-04T15:26:37Z UpdateTip: new best=00000008819873e925422c1ff0f99f7cc9bbb232af63a077a480a3633bee1ef6 height=0 version=0x00000001 log2_work=22.206105 tx=1 date='2020-09-01T00:00:00Z' progress=0.000000 cache=0.3MiB(0txo)
+2024-04-04T15:26:37Z block tree size = 1
+2024-04-04T15:26:37Z nBestHeight = 0
+2024-04-04T15:26:37Z Failed to open mempool file from disk. Continuing anyway.
+2024-04-04T15:26:37Z initload thread exit
+2024-04-04T15:26:37Z torcontrol thread start
+2024-04-04T15:26:37Z Bound to [OMITTED IPv4 ADDRESS]:38334
+2024-04-04T15:26:37Z Bound to [::]:38333
+2024-04-04T15:26:37Z Bound to [OMITTED IPv4 ADDRESS]:38333
+2024-04-04T15:26:37Z 0 block-relay-only anchors will be tried for connections.
+2024-04-04T15:26:37Z init message: Starting network threads…
+2024-04-04T15:26:37Z net thread start
+2024-04-04T15:26:37Z addcon thread start
+2024-04-04T15:26:37Z dnsseed thread start
+2024-04-04T15:26:37Z -seednode enabled. Trying the provided seeds for 30 seconds before defaulting to the dnsseeds.
+2024-04-04T15:26:37Z init message: Done loading
+2024-04-04T15:26:37Z opencon thread start
+2024-04-04T15:26:37Z msghand thread start
+2024-04-04T15:26:37Z [net] trying v2 connection bitcoin.achow101.com:38333 lastseen=0.0hrs
+2024-04-04T15:26:37Z [net] Added connection peer=0
+2024-04-04T15:26:37Z [net] sending version (103 bytes) peer=0
+2024-04-04T15:26:37Z [net] send version message: version 70016, blocks=0, txrelay=1, peer=0
+2024-04-04T15:26:37Z [net] start sending v2 handshake to peer=0
+2024-04-04T15:26:37Z [net] received: version (103 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending wtxidrelay (0 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending sendaddrv2 (0 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending verack (0 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending getaddr (0 bytes) peer=0
+2024-04-04T15:26:37Z [net] receive version message: /Satoshi:27.99.0/: version 70016, blocks=189865, us=[OMITTED IPv4 ADDRESS]:49264, txrelay=1, peer=0
+2024-04-04T15:26:37Z [net] added time data, samples 2, offset +2 (+0 minutes)
+2024-04-04T15:26:37Z [net] received: wtxidrelay (0 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: sendaddrv2 (0 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: verack (0 bytes) peer=0
+2024-04-04T15:26:37Z New addr-fetch v2 peer connected: version: 70016, blocks=189865, peer=0
+2024-04-04T15:26:37Z [net] sending sendcmpct (9 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending ping (8 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending feefilter (8 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: sendcmpct (9 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: ping (8 bytes) peer=0
+2024-04-04T15:26:37Z [net] sending pong (8 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: getheaders (965 bytes) peer=0
+2024-04-04T15:26:37Z [net] Ignoring getheaders from peer=0 because active chain has too little work; sending empty response
+2024-04-04T15:26:37Z [net] sending headers (1 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: feefilter (8 bytes) peer=0
+2024-04-04T15:26:37Z [net] received: feefilter of 0.00001000 BTC/kvB from peer=0
+2024-04-04T15:26:37Z [net] received: addrv2 (19759 bytes) peer=0
+2024-04-04T15:26:37Z [net] Received addr: 1000 addresses (1000 processed, 0 rate-limited) from peer=0
+2024-04-04T15:26:37Z [net] addrfetch connection completed peer=0; disconnecting
+2024-04-04T15:26:37Z [net] disconnecting peer=0
+2024-04-04T15:26:37Z [net] Cleared nodestate for peer=0
+2024-04-04T15:26:38Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=682.4hrs
+2024-04-04T15:26:43Z [net] connection attempt to [OMITTED IPv4 ADDRESS]:38333 timed out
+2024-04-04T15:26:43Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=253.3hrs
+2024-04-04T15:26:48Z [net] connection attempt to [OMITTED IPv4 ADDRESS]:38333 timed out
+2024-04-04T15:26:49Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=12.6hrs
+2024-04-04T15:26:54Z [net] connection attempt to [OMITTED IPv4 ADDRESS]:38333 timed out
+2024-04-04T15:26:54Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=151.3hrs
+2024-04-04T15:26:59Z [net] connection attempt to [OMITTED IPv4 ADDRESS]:38333 timed out
+2024-04-04T15:27:00Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=689.5hrs
+2024-04-04T15:27:05Z [net] connection attempt to [OMITTED IPv4 ADDRESS]:38333 timed out
+2024-04-04T15:27:05Z [net] trying v1 connection [[OMITTED IPv6 ADDRESS]:38333 lastseen=61.7hrs
+2024-04-04T15:27:05Z [net] connect() to [[OMITTED IPv6 ADDRESS]:38333 failed: Network is unreachable (101)
+2024-04-04T15:27:06Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=94.9hrs
+2024-04-04T15:27:07Z Couldn't connect to enough peers via seed nodes. Handing fetch logic to the DNS seeds.
+2024-04-04T15:27:07Z Waiting 11 seconds before querying DNS seeds.
+2024-04-04T15:27:11Z [net] connection attempt to [OMITTED IPv4 ADDRESS]:38333 timed out
+2024-04-04T15:27:11Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=108.8hrs
+2024-04-04T15:27:12Z [net] connect() to [OMITTED IPv4 ADDRESS]:38333 failed after wait: Connection refused (111)
+2024-04-04T15:27:12Z [net] trying v1 connection [[OMITTED IPv6 ADDRESS]:38333 lastseen=31.1hrs
+2024-04-04T15:27:12Z [net] connect() to [[OMITTED IPv6 ADDRESS]:38333 failed: Network is unreachable (101)
+2024-04-04T15:27:13Z [net] trying v2 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=101.0hrs
+2024-04-04T15:27:13Z [net] connect() to [OMITTED IPv4 ADDRESS]:38333 failed after wait: Connection refused (111)
+2024-04-04T15:27:13Z [net] trying v1 connection [[OMITTED IPv6 ADDRESS]:38333 lastseen=664.3hrs
+2024-04-04T15:27:13Z [net] connect() to [[OMITTED IPv6 ADDRESS]:38333 failed: Network is unreachable (101)
+2024-04-04T15:27:14Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=274.8hrs
+2024-04-04T15:27:14Z [net] connect() to [OMITTED IPv4 ADDRESS]:38333 failed after wait: Connection refused (111)
+2024-04-04T15:27:14Z [net] trying v1 connection [OMITTED IPv4 ADDRESS]:38333 lastseen=163.9hrs
+2024-04-04T15:27:18Z Loading addresses from DNS seed v7ajjeirttkbnt32wpy3c6w3emwnfr3fkla7hpxcfokr3ysd3kqtzmqd.onion:38333
+2024-04-04T15:27:18Z Loading addresses from DNS seed [OMITTED IPv4 ADDRESS]
+2024-04-04T15:27:18Z Loading addresses from DNS seed seed.signet.bitcoin.sprovoost.nl.
+2024-04-04T15:27:19Z 34 addresses found from DNS seeds
+2024-04-04T15:27:19Z dnsseed thread exit
