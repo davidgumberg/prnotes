@@ -5,13 +5,32 @@ asynchronously.
 
 ## `bool InitHttpServer`
 
-Call `InitHTTPAllowList()`, failing if it fails.
+Call `InitHTTPAllowList()`, failing if it fails:
+
+```cpp
+if (!InitHTTPAllowList())
+    return false;
+```
 
 Override libevent's logging by setting our own callback:
 
 ```cpp
 event_set_log_callback(&libevent_log_cb);
 ```
+
+Set our libevent log level in accordance with whether or not bitcoind was run
+with `-debug libevent`
+
+```cpp
+UpdateHTTPServerLogging(LogInstance().WillLogCategory(BCLog::LIBEVENT));
+```
+
+### Libevent evhttp setup
+
+Bitcoin Core has a set of RAII wrappers for libevent in `src/support/events.h`.
+
+
+
 
 
 ## `InitHTTPAllowList()`
