@@ -29,10 +29,18 @@ overriden by descendants.
 This class provides an abstraction for working with a txout dataset. It is the 
 base class of descendants `CCoinsViewBacked` and `CCoinsViewCache`
 
-In practice, there is a sequence of `CCoinsViewCache`'s that are backed by either another
+In theory, there could be a sequence of `CCoinsViewCache`'s that are backed by either another
 `CCoinsViewCache` or an ultimate `CCoinsViewDB final : public CCoinsView` that
 is backed by the on-disk 'chainstate' db.
 
+In practice, the class 'CoinsViews' in `src/validation.h` establishes the
+hierarchy used to manage the UTXO set. Starting from the bottom, a
+CCoinsViewDB `m_dbview` facilitates access to the comprehensive on-disk LevelDB
+utxo db. That is wrapped by a `CCoinsViewErrorCatcher`, which gracefully shuts
+down when LevelDB errors occur, and at the top we have a CCoinsViewCache that is
+our coin cache.
+
+   🙋Question: Why isn't database error handling built in to CCoinsViewDB?
 <details>
 
 <summary>
@@ -104,12 +112,8 @@ size_t CCoinsViewBacked::EstimateSize() const { return base->EstimateSize(); }
 
 ### `class CCoinsViewCache : public CCoinsViewBacked`
 
-This class inherits the standard `CCoinsView` methods from `CCoinsViewBacked`
-(`GetCoin`, `HaveCoin`, etc.). Namely, it delegates those methods to it's
-backing `CoinsView *base`.
-
-It extends `CCoinsViewBacked` with a `CCoinsMap cacheCoins`. `CCoinsMap` is an
-unordered map from `COutPoint`'s to `CCoinsCacheEntry`'s
+This class extends `CCoinsViewBacked` with the attribute `CCoinsMap cacheCoins`, which
+is an unordered map from `COutPoint`'s to `CCoinsCacheEntry`'s.
 
 <details> 
 
@@ -139,6 +143,33 @@ using CCoinsMap = std::unordered_map<COutPoint, // [ Key ]
 
 </details>
 
+#### CCoinsViewCache methods
+
+##### `CCoinsViewCache::FetchCoin`
+
+```cpp
+// [ Returns an iterator from the Cache's Coin Map of a given outpoint ]
+CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const {
+    // [ std::unordered_map::find returns std::unordered_map::end if nothing is
+    //   found ]
+    CCoinsMap::iterator it = cacheCoins.find(outpoint);
+    // [ If the outpoint is available in the cache, return the iterator to our
+    //   cache entry ]
+    if (it != cacheCoins.end())
+        return it;
+    Coin tmp;
+    if (!base->GetCoin(outpoint, tmp))
+        return cacheCoins.end();
+    CCoinsMap::iterator ret = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::forward_as_tuple(std::move(tmp))).first;
+    if (ret->second.coin.IsSpent()) {
+        // The parent only has an empty entry for this outpoint; we can consider our
+        // version as fresh.
+        ret->second.flags = CCoinsCacheEntry::FRESH;
+    }
+    cachedCoinsUsage += ret->second.coin.DynamicMemoryUsage();
+    return ret;
+}
+```
 
 ## [coins: add cache entry linked list fields and methods](https://github.com/bitcoin/bitcoin/pull/28280/commits/2d92e1fcc47e417da33f7b576a6a5eaa9458ef22)
 
