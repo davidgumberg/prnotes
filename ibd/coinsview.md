@@ -25,6 +25,101 @@ CCoinsViewMempool      CCoinsViewCache
 `CCoinsView` and `CCoinsViewBacked` are base classes that are meant to be
 overriden by descendants.
 
+### `COutPoint` & `Coin`
+
+A `COutPoint` consists of a txid `hash` and `vout` index. (`uint32_t`). 
+
+A `Coin` is used to represent an unspent transaction output (utxo), its attributes are:
+- `CTxOut out` which holds the `scriptPubKey` and `nValue` of a transaction
+  output (txout).
+- `unsigned int fCoinBase`: a boolean that represents whether or not
+  the output's transaction was a coinbase.
+- `uint32_t nHeight`: the height of the block this utxo was included in
+
+When a `Coin` is spent, Coin::Clear() is called, which sets `fCoinbase = true`,
+`nHeight = 0` and calls `out.SetNull()`. 
+
+    `CTxOut::SetNull` sets `nValue = -1` and clears the scriptPubKey.
+    Coin::IsSpent() just returns the result of `CTxOut::IsNull()`. (true if
+    `nvalue == -1`
+
+<details>
+
+<summary>
+
+Source for `class Coin` from `src/coins.h`
+```cpp
+class Coin
+{
+public
+    // [ a CTxOut represents a transaction output, it holds the `scriptPubKey` and
+    //   and nValue of a txout. ]
+    //! unspent transaction output
+    CTxOut out;
+    
+    // [ Question: Why these initial values of fCoinBase and nHeight? ]
+    // [ A bit unclear... added in 41aa5b79a3d "Pack coin more tightly" from 
+    //   #10195 https://github.com/bitcoin/bitcoin/pull/10195 ]
+
+    //! whether containing transaction was a coinbase
+    unsigned int fCoinBase : 1;
+
+    //! at which height this containing transaction was included in the active block chain
+    uint32_t nHeight : 31;
+
+    //! construct a Coin from a CTxOut and height/coinbase information.
+    Coin(CTxOut&& outIn, int nHeightIn, bool fCoinBaseIn) : out(std::move(outIn)), fCoinBase(fCoinBaseIn), nHeight(nHeightIn) {}
+    Coin(const CTxOut& outIn, int nHeightIn, bool fCoinBaseIn) : out(outIn), fCoinBase(fCoinBaseIn),nHeight(nHeightIn) {}
+
+    void Clear() {
+        // CTxOut::SetNull() makes the nValue = -1, and calls scriptPubKey.clear();
+        out.SetNull();
+        fCoinBase = false;
+        nHeight = 0;
+    }
+
+    //! empty constructor
+    Coin() : fCoinBase(false), nHeight(0) { }
+
+    bool IsCoinBase() const {
+        return fCoinBase;
+    }
+
+    template<typename Stream>
+    void Serialize(Stream &s) const {
+        assert(!IsSpent());
+        uint32_t code = nHeight * uint32_t{2} + fCoinBase;
+        ::Serialize(s, VARINT(code));
+        ::Serialize(s, Using<TxOutCompression>(out));
+    }
+
+    template<typename Stream>
+    void Unserialize(Stream &s) {
+        uint32_t code = 0;
+        ::Unserialize(s, VARINT(code));
+        nHeight = code >> 1;
+        fCoinBase = code & 1;
+        ::Unserialize(s, Using<TxOutCompression>(out));
+    }
+
+    /** Either this coin never existed (see e.g. coinEmpty in coins.cpp), or it
+      * did exist and has been spent.
+      */
+    bool IsSpent() const {
+        return out.IsNull();
+    }
+
+    size_t DynamicMemoryUsage() const {
+        return memusage::DynamicUsage(out.scriptPubKey);
+    }
+};
+```
+
+</details>
+
+ `Coin` consists of a `CTxOut`
+
+
 ### `class CCoinsView`
 This class provides an abstraction for working with a txout dataset. It is the 
 base class of descendants `CCoinsViewBacked` and `CCoinsViewCache`
@@ -157,7 +252,13 @@ CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const 
     //   cache entry ]
     if (it != cacheCoins.end())
         return it;
+
+    // [ Otherwise we fall back onto the backing CCoinsView (in practice this
+    //   will be the CCoinsViewErrorCatcher that wraps our CCoinsViewDB ]
     Coin tmp;
+
+    // [ If the backing view can't get us the coin we want, return the `end`
+    //   iterator to indicate failure ]
     if (!base->GetCoin(outpoint, tmp))
         return cacheCoins.end();
     CCoinsMap::iterator ret = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::forward_as_tuple(std::move(tmp))).first;
@@ -170,89 +271,6 @@ CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const 
     return ret;
 }
 ```
-
-## [coins: add cache entry linked list fields and methods](https://github.com/bitcoin/bitcoin/pull/28280/commits/2d92e1fcc47e417da33f7b576a6a5eaa9458ef22)
-
-`class Coin` is used to represent a UTXO entry, its attributes are:
-- `CTxOut out` which holds the `scriptPubKey` and `nValue` of a transaction
-  output (txout).
-- `unsigned int fCoinBase`: a boolean that represents whether or not
-  the output's transaction was a coinbase.
-- `uint32_t nHeight`: the height of the block this utxo was included in
-
-<details>
-
-<summary>
-
-Source for `class Coin` from `src/coins.h`
-```cpp
-class Coin
-{
-public
-    // [ a CTxOut represents a transaction output, it holds the `scriptPubKey` and
-    //   and nValue of a txout. ]
-    //! unspent transaction output
-    CTxOut out;
-    
-    // [ Question: Why these initial values of fCoinBase and nHeight? ]
-    // [ A bit unclear... added in 41aa5b79a3d "Pack coin more tightly" from 
-    //   #10195 https://github.com/bitcoin/bitcoin/pull/10195 ]
-
-    //! whether containing transaction was a coinbase
-    unsigned int fCoinBase : 1;
-
-    //! at which height this containing transaction was included in the active block chain
-    uint32_t nHeight : 31;
-
-    //! construct a Coin from a CTxOut and height/coinbase information.
-    Coin(CTxOut&& outIn, int nHeightIn, bool fCoinBaseIn) : out(std::move(outIn)), fCoinBase(fCoinBaseIn), nHeight(nHeightIn) {}
-    Coin(const CTxOut& outIn, int nHeightIn, bool fCoinBaseIn) : out(outIn), fCoinBase(fCoinBaseIn),nHeight(nHeightIn) {}
-
-    void Clear() {
-        // CTxOut::SetNull() makes the nValue = -1, and calls scriptPubKey.clear();
-        out.SetNull();
-        fCoinBase = false;
-        nHeight = 0;
-    }
-
-    //! empty constructor
-    Coin() : fCoinBase(false), nHeight(0) { }
-
-    bool IsCoinBase() const {
-        return fCoinBase;
-    }
-
-    template<typename Stream>
-    void Serialize(Stream &s) const {
-        assert(!IsSpent());
-        uint32_t code = nHeight * uint32_t{2} + fCoinBase;
-        ::Serialize(s, VARINT(code));
-        ::Serialize(s, Using<TxOutCompression>(out));
-    }
-
-    template<typename Stream>
-    void Unserialize(Stream &s) {
-        uint32_t code = 0;
-        ::Unserialize(s, VARINT(code));
-        nHeight = code >> 1;
-        fCoinBase = code & 1;
-        ::Unserialize(s, Using<TxOutCompression>(out));
-    }
-
-    /** Either this coin never existed (see e.g. coinEmpty in coins.cpp), or it
-      * did exist and has been spent.
-      */
-    bool IsSpent() const {
-        return out.IsNull();
-    }
-
-    size_t DynamicMemoryUsage() const {
-        return memusage::DynamicUsage(out.scriptPubKey);
-    }
-};
-```
-
-</details>
 
 ### CCoinsCacheEntry
 
