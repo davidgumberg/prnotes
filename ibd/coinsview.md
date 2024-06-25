@@ -39,15 +39,14 @@ A `Coin` is used to represent an unspent transaction output (utxo), its attribut
 When a `Coin` is spent, Coin::Clear() is called, which sets `fCoinbase = true`,
 `nHeight = 0` and calls `out.SetNull()`. 
 
-    `CTxOut::SetNull` sets `nValue = -1` and clears the scriptPubKey.
-    Coin::IsSpent() just returns the result of `CTxOut::IsNull()`. (true if
-    `nvalue == -1`
+`CTxOut::SetNull` sets `nValue = -1` and clears the scriptPubKey.
+Coin::IsSpent() just returns the result of `CTxOut::IsNull()`. (true if `nvalue
+== -1`)
 
 <details>
 
-<summary>
+<summary>Source for `class Coin` from `src/coins.h`</summary>
 
-Source for `class Coin` from `src/coins.h`
 ```cpp
 class Coin
 {
@@ -135,12 +134,11 @@ utxo db. That is wrapped by a `CCoinsViewErrorCatcher`, which gracefully shuts
 down when LevelDB errors occur, and at the top we have a CCoinsViewCache that is
 our coin cache.
 
-   🙋Question: Why isn't database error handling built in to CCoinsViewDB?
+    🙋Question: Why isn't database error handling built in to CCoinsViewDB?
+
 <details>
 
-<summary>
-Source code for the `CCoinsView` base class
-</summary>
+<summary>Source code for the `CCoinsView` base class</summary>
 
 ```cpp
 /** Abstract view on the open txout dataset. */
@@ -212,7 +210,7 @@ is an unordered map from `COutPoint`'s to `CCoinsCacheEntry`'s.
 
 <details> 
 
-<summary> `CCoinsMap` Source </details>
+<summary>`CCoinsMap` Source</summary>
 
 <details> 
 
@@ -241,6 +239,10 @@ using CCoinsMap = std::unordered_map<COutPoint, // [ Key ]
 #### CCoinsViewCache methods
 
 ##### `CCoinsViewCache::FetchCoin`
+
+<details>
+
+<summary>Source code for `CCoinsViewCache::FetchCoin`</summary>
 
 ```cpp
 // [ Returns an iterator from the Cache's Coin Map of a given outpoint ]
@@ -271,6 +273,8 @@ CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const 
     return ret;
 }
 ```
+
+</details>
 
 ### CCoinsCacheEntry
 
@@ -314,9 +318,8 @@ Worth noting are the three invalid states:
 
 <details>
 
-<summary>
+<summary>Source for `class CCoinsCacheEntry` from `src/coins.h`</summary>
 
-Source for `class CCoinsCacheEntry` from `src/coins.h`
 ```cpp
 /**
  * A Coin in one level of the coins database caching hierarchy.
