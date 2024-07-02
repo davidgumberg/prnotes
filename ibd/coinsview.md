@@ -116,9 +116,6 @@ public
 
 </details>
 
- `Coin` consists of a `CTxOut`
-
-
 ### `class CCoinsView`
 This class provides an abstraction for working with a txout dataset. It is the 
 base class of descendants `CCoinsViewBacked` and `CCoinsViewCache`
