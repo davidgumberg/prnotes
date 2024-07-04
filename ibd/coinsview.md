@@ -260,7 +260,27 @@ CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const 
     //   iterator to indicate failure ]
     if (!base->GetCoin(outpoint, tmp))
         return cacheCoins.end();
+
+    // [ Emplace lets us construct the key and value in place, without the need
+    //   for a temporary std::Pair<Key, T>
+    //   std::piecewise_construct lets us also create the key (COutPoint) and
+    //   T (CCoinsCacheEntry) without causing an extra copy of each to be made due to
+    //   the use of the pair(T1 const&, T2 const&) constructor.
+    //   
+    //   I am a bit fuzzy on all the details, but this is partly discussed in a
+    //   blogpost by Raymond Chen: "What’s up with std::piecewise_construct and
+    //   std::forward_as_tuple?" and a comment on the post:
+    //   source: https://devblogs.microsoft.com/oldnewthing/20220428-00/?p=106540#comment-139252
+    // 
+    //   Question: Why don't we check the value of
+    //   cacheCoins.emplace(...).second here?
+    // 
+    //   Answer: the only condition where emplace fails *without* throwing an
+    //   exception is if the inserted element is already present,
+    // ]
+
     CCoinsMap::iterator ret = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::forward_as_tuple(std::move(tmp))).first;
+
     if (ret->second.coin.IsSpent()) {
         // The parent only has an empty entry for this outpoint; we can consider our
         // version as fresh.
