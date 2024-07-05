@@ -233,67 +233,7 @@ using CCoinsMap = std::unordered_map<COutPoint, // [ Key ]
 
 </details>
 
-#### CCoinsViewCache methods
-
-##### `CCoinsViewCache::FetchCoin`
-
-<details>
-
-<summary>Source code for `CCoinsViewCache::FetchCoin`</summary>
-
-```cpp
-// [ Returns an iterator from the Cache's Coin Map of a given outpoint ]
-CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const {
-    // [ std::unordered_map::find returns std::unordered_map::end if nothing is
-    //   found ]
-    CCoinsMap::iterator it = cacheCoins.find(outpoint);
-    // [ If the outpoint is available in the cache, return the iterator to our
-    //   cache entry ]
-    if (it != cacheCoins.end())
-        return it;
-
-    // [ Otherwise we fall back onto the backing CCoinsView (in practice this
-    //   will be the CCoinsViewErrorCatcher that wraps our CCoinsViewDB ]
-    Coin tmp;
-
-    // [ If the backing view can't get us the coin we want, return the `end`
-    //   iterator to indicate failure ]
-    if (!base->GetCoin(outpoint, tmp))
-        return cacheCoins.end();
-
-    // [ Emplace lets us construct the key and value in place, without the need
-    //   for a temporary std::Pair<Key, T>
-    //   std::piecewise_construct lets us also create the key (COutPoint) and
-    //   T (CCoinsCacheEntry) without causing an extra copy of each to be made due to
-    //   the use of the pair(T1 const&, T2 const&) constructor.
-    //   
-    //   I am a bit fuzzy on all the details, but this is partly discussed in a
-    //   blogpost by Raymond Chen: "What’s up with std::piecewise_construct and
-    //   std::forward_as_tuple?" and a comment on the post:
-    //   source: https://devblogs.microsoft.com/oldnewthing/20220428-00/?p=106540#comment-139252
-    // 
-    //   Question: Why don't we check the value of
-    //   cacheCoins.emplace(...).second here?
-    // 
-    //   Answer: the only condition where emplace fails *without* throwing an
-    //   exception is if the inserted element is already present,
-    // ]
-
-    CCoinsMap::iterator ret = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::forward_as_tuple(std::move(tmp))).first;
-
-    if (ret->second.coin.IsSpent()) {
-        // The parent only has an empty entry for this outpoint; we can consider our
-        // version as fresh.
-        ret->second.flags = CCoinsCacheEntry::FRESH;
-    }
-    cachedCoinsUsage += ret->second.coin.DynamicMemoryUsage();
-    return ret;
-}
-```
-
-</details>
-
-### CCoinsCacheEntry
+#### CCoinsCacheEntry
 
 `CCoinsCacheEntry` is used for tracking the status of a coin "in one level of the
 coins database caching hierarchy." Namely, whether or not that coin is spent or
@@ -302,14 +242,16 @@ unspent, `DIRTY` or `!DIRTY`, `FRESH` or `!FRESH`.
 As described in the comments in `src/coins.h`:
 
 `DIRTY`ness indicates that this cache entry is "potentially different from the
-version in the parent cache", a `DIRTY` entry gets written on the next cache
+version in the parent (backing) cache", a `DIRTY` entry gets written on the next cache
 flush.
 
 `FRESH`ness indicates *either* "the parent cache does not have this coin" *or*
 "it is a spent coin in the parent cache." `FRESH` coins can be spent without
 being deleted from the parent cache on the next flush since the parent either 1)
 does not know about the coin or 2) knows about the coin and knows that it is
-spent. `coins.h` provides the following summary of the valid (5 out of 8)
+spent.
+
+`coins.h` provides the following summary of the valid (5 out of 8)
 possible states of these three indicators on a cache entry:
 
      Out of these 2^3 = 8 states, only some combinations are valid:
@@ -386,3 +328,65 @@ struct CCoinsCacheEntry
 ```
 
 </details>
+
+#### CCoinsViewCache methods
+
+##### `CCoinsViewCache::FetchCoin`
+
+<details>
+
+<summary>Source code for `CCoinsViewCache::FetchCoin`</summary>
+
+```cpp
+// [ Returns an iterator from the Cache's Coin Map of a given outpoint ]
+CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const {
+    // [ std::unordered_map::find returns std::unordered_map::end if nothing is
+    //   found ]
+    CCoinsMap::iterator it = cacheCoins.find(outpoint);
+    // [ If the outpoint is available in the cache, return the iterator to our
+    //   cache entry ]
+    if (it != cacheCoins.end())
+        return it;
+
+    // [ Otherwise we fall back onto the backing CCoinsView (in practice this
+    //   will be the CCoinsViewErrorCatcher that wraps our CCoinsViewDB ]
+    Coin tmp;
+
+    // [ If the backing view can't get us the coin we want, return the `end`
+    //   iterator to indicate failure ]
+    if (!base->GetCoin(outpoint, tmp))
+        return cacheCoins.end();
+
+    // [ Emplace lets us construct the key and value in place, without the need
+    //   for a temporary std::Pair<Key, T>
+    //   std::piecewise_construct lets us also create the key (COutPoint) and
+    //   T (CCoinsCacheEntry) without causing an extra copy of each to be made due to
+    //   the use of the pair(T1 const&, T2 const&) constructor.
+    //   
+    //   I am a bit fuzzy on all the details, but this is partly discussed in a
+    //   blogpost by Raymond Chen: "What’s up with std::piecewise_construct and
+    //   std::forward_as_tuple?" and a comment on the post:
+    //   source: https://devblogs.microsoft.com/oldnewthing/20220428-00/?p=106540#comment-139252
+    // 
+    //   Question: Why don't we check the value of
+    //   cacheCoins.emplace(...).second here?
+    // 
+    //   Answer: the only condition where emplace fails *without* throwing an
+    //   exception is if the inserted element is already present.
+    // ]
+
+    CCoinsMap::iterator ret = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::forward_as_tuple(std::move(tmp))).first;
+
+    if (ret->second.coin.IsSpent()) {
+        // The parent only has an empty entry for this outpoint; we can consider our
+        // version as fresh.
+        ret->second.flags = CCoinsCacheEntry::FRESH;
+    }
+    cachedCoinsUsage += ret->second.coin.DynamicMemoryUsage();
+    return ret;
+}
+```
+
+</details>
+
+
