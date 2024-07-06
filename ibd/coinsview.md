@@ -209,8 +209,6 @@ is an unordered map from `COutPoint`'s to `CCoinsCacheEntry`'s.
 
 <summary>`CCoinsMap` Source</summary>
 
-<details> 
-
 ```cpp
 /* [
 
@@ -331,7 +329,15 @@ struct CCoinsCacheEntry
 
 #### CCoinsViewCache methods
 
-##### `CCoinsViewCache::FetchCoin`
+##### `CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const`
+
+Find the given outpoint (txid + vout) in the CCoinsViewCache's `CCoinsMap
+cacheCoins`, if we don't already have the Outpoint in our cache, ask for it from
+the backing CCoinsView (`base->GetCoin(outpoint, tmp_coin`). If found,
+`map::emplace` it into the cache view, track the added memory usage in `size_t
+cachedCoinsUsage` (which tracks the memory usage of `Coin`'s in the cache), and
+return an iterator to the newly emplaced coin in our CCoinsMap. If not found,
+return `cachecoins.end()`.
 
 <details>
 
@@ -377,11 +383,20 @@ CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const 
 
     CCoinsMap::iterator ret = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::forward_as_tuple(std::move(tmp))).first;
 
+    
+    // [ The comment below may be a bit confusing: some background is that spent
+    //   coins are marked as spent by calling Coin::Clear() which calls
+    //   CTxOut::SetNull() on the Coin's `CTxOut out`.
+    //   bool Coin::IsSpent() just returns `out.IsNull();`  ]
     if (ret->second.coin.IsSpent()) {
         // The parent only has an empty entry for this outpoint; we can consider our
         // version as fresh.
         ret->second.flags = CCoinsCacheEntry::FRESH;
     }
+
+    // [ Track the memory usage of the newly emplaced coin, note that
+    //   cachedCoinsUsage does not track the usage of the entire CCoinsMap, just
+    //   the `Coin`'s ]
     cachedCoinsUsage += ret->second.coin.DynamicMemoryUsage();
     return ret;
 }
@@ -389,4 +404,120 @@ CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const 
 
 </details>
 
+#### `bool CCoinsViewCache::GetCoin(const COutPoint &outpoint, Coin &coin) const`
+Relies on  CCoinsViewCache::FetchCoin, the only difference is that GetCoin
+modifies a Coin passed by reference instead of returning a `Coin`, and it returns
+true if the coin is unspent, false if it is spent or not found in the
+CCoinsViewCache or its backing CCoinsView.
 
+Pointlessly minor note: If the outpoint is not found, the `coin` parameter is
+unmodified and false is returned, if the outpoit is found, the `coin` parameter
+is modified and false is returned.
+
+<details>
+
+<summary> Source for `CCoinsViewCache::GetCoin()` </summary>
+
+```cpp
+bool CCoinsViewCache::GetCoin(const COutPoint &outpoint, Coin &coin) const {
+    CCoinsMap::const_iterator it = FetchCoin(outpoint);
+    // [ cacheCoins.end() is the value returned by FetchCoin when the outpoint
+    //   could not found ]
+    if (it != cacheCoins.end()) {
+        coin = it->second.coin;
+        // [ The main difference from FetchCoin is that we return true if we
+        //   find an unspent coin... ]
+        return !coin.IsSpent();
+    }
+
+    // [ ...and false otherwise. ]
+    return false;
+}
+```
+
+</details>
+
+#### `void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possible_overwrite)`
+
+AddCoin is used in `ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const
+COutPoint& out)` which restores a Coin at a given outpoint to a CCoinsViewCache
+as part of 'undoing' a transaction. `ApplyTxInUndo` at present is only used
+whenever `Chainstate::DisconnectBlock` happens, and we loop through the block,
+undoing transactions.
+
+<details>
+
+<summary>Source Code for `CCoinsViewCache::AddCoin`</summary>
+
+```cpp
+void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possible_overwrite) {
+    // [ Worth repeating here that a 'spent' Coin is empty (coin.out.IsNull() ==
+    //   true), there would be no meaningful way for us to deal with the
+    //   situation where someone wanted to restore a coin that is empty. ]
+    assert(!coin.IsSpent());
+
+    // [ An unspendable coin was never in our cache in the first place. ]
+    if (coin.out.scriptPubKey.IsUnspendable()) return;
+    CCoinsMap::iterator it;
+    bool inserted;
+
+    // [ std::unordered_map::emplace returns a tuple whose first value is the
+    //   iterator of the newly emplaced member and whose second value
+    //   is a boolean indicating whether or not the member was inserted.
+    //
+    //   The only case in which inserted would be false, is if insertion failed
+    //   due to the element already being present, otherwise emplace would throw
+    //   an exception. ] 
+    std::tie(it, inserted) = cacheCoins.emplace(std::piecewise_construct, std::forward_as_tuple(outpoint), std::tuple<>());
+    bool fresh = false;
+
+    // [ if !inserted, subtract the existing memory usage since we are about to
+    //   modify the coin and then we'll check in on the DynamicMemoryUsage and
+    //   add back the new DynamicMemoryUsage().
+    //
+    //   Question: Is behavior here defined if cachedCoinsUsage underflows? We
+    //   are going to be adding back the new usage later, is there a danger if
+    //   cachedCoinsUsage < it->second.coin.DynamicMemoryUsage()? 
+    // 
+    //   Answer: I think no! Since cachedCoinsUsage is size_t which is unsigned,
+    //   and unsigned integer overflow / underflow is defined as result % 2^n
+    //   where n is the size of the expression's type in bits, associativity is
+    //   preserved when doing unsigned integer arithmetic:
+
+    //   (existingUsage - oldCoin) + newCoin == (existingUsage + newCoin) - oldCoin)
+
+    if (!inserted) {
+        cachedCoinsUsage -= it->second.coin.DynamicMemoryUsage();
+    }
+    if (!possible_overwrite) {
+        // [ Question: In what case could the coin be unspent here? ]
+        if (!it->second.coin.IsSpent()) {
+            throw std::logic_error("Attempted to overwrite an unspent coin (when possible_overwrite is false)");
+        }
+        // If the coin exists in this cache as a spent coin and is DIRTY, then
+        // its spentness hasn't been flushed to the parent cache. We're
+        // re-adding the coin to this cache now but we can't mark it as FRESH.
+        // If we mark it FRESH and then spend it before the cache is flushed
+        // we would remove it from this cache and would never flush spentness
+        // to the parent cache.
+        //
+        // Re-adding a spent coin can happen in the case of a re-org (the coin
+        // is 'spent' when the block adding it is disconnected and then
+        // re-added when it is also added in a newly connected block).
+        //
+        // If the coin doesn't exist in the current cache, or is spent but not
+        // DIRTY, then it can be marked FRESH.
+        fresh = !(it->second.flags & CCoinsCacheEntry::DIRTY);
+    }
+    it->second.coin = std::move(coin);
+    it->second.flags |= CCoinsCacheEntry::DIRTY | (fresh ? CCoinsCacheEntry::FRESH : 0);
+    cachedCoinsUsage += it->second.coin.DynamicMemoryUsage();
+    TRACE5(utxocache, add,
+           outpoint.hash.data(),
+           (uint32_t)outpoint.n,
+           (uint32_t)it->second.coin.nHeight,
+           (int64_t)it->second.coin.out.nValue,
+           (bool)it->second.coin.IsCoinBase());
+}
+```
+</details>
