@@ -443,7 +443,9 @@ AddCoin is used in `ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const
 COutPoint& out)` which restores a Coin at a given outpoint to a CCoinsViewCache
 as part of 'undoing' a transaction. `ApplyTxInUndo` at present is only used
 whenever `Chainstate::DisconnectBlock` happens, and we loop through the block,
-undoing transactions.
+undoing transactions. I am guessing this is only relevant in the case of a
+chainsplit, not hugely important to IBD.
+
 
 <details>
 
@@ -520,4 +522,16 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possi
            (bool)it->second.coin.IsCoinBase());
 }
 ```
+</details>
+
+
+#### `void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possible_overwrite)`
+
+<details>
+
+<summary></summary>
+
+```cpp
+```
+
 </details>
