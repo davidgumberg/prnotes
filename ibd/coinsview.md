@@ -446,7 +446,6 @@ whenever `Chainstate::DisconnectBlock` happens, and we loop through the block,
 undoing transactions. I am guessing this is only relevant in the case of a
 chainsplit, not hugely important to IBD.
 
-
 <details>
 
 <summary>Source Code for `CCoinsViewCache::AddCoin`</summary>
