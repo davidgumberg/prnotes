@@ -233,6 +233,10 @@ using CCoinsMap = std::unordered_map<COutPoint, // [ Key ]
 
 #### CCoinsCacheEntry
 
+    󰋁 The terms "backing cache" and "parent cache" are used interchangeably here
+    and in bitcoin core source code to refer to the backing CCoinsView
+    (view->base) of a CCoinsViewBacked
+
 `CCoinsCacheEntry` is used for tracking the status of a coin "in one level of the
 coins database caching hierarchy." Namely, whether or not that coin is spent or
 unspent, `DIRTY` or `!DIRTY`, `FRESH` or `!FRESH`.
@@ -243,11 +247,14 @@ As described in the comments in `src/coins.h`:
 version in the parent (backing) cache", a `DIRTY` entry gets written on the next cache
 flush.
 
-`FRESH`ness indicates *either* "the parent cache does not have this coin" *or*
-"it is a spent coin in the parent cache." `FRESH` coins can be spent without
-being deleted from the parent cache on the next flush since the parent either 1)
-does not know about the coin or 2) knows about the coin and knows that it is
-spent.
+`FRESH`ness, in short, indicates that if this coin gets spent, don't worry about
+propogating that change to the backing cache.
+
+Specifically, `FRESH`ness means *either* "the parent cache does not have
+this coin" *or* "it is a spent coin in the parent cache." `FRESH` coins can be
+spent without being deleted from the parent cache on the next flush since the
+parent either 1) does not know about the coin or 2) knows about the coin and
+knows that it is spent.
 
 `coins.h` provides the following summary of the valid (5 out of 8)
 possible states of these three indicators on a cache entry:
@@ -443,8 +450,67 @@ AddCoin is used in `ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const
 COutPoint& out)` which restores a Coin at a given outpoint to a CCoinsViewCache
 as part of 'undoing' a transaction. `ApplyTxInUndo` at present is only used
 whenever `Chainstate::DisconnectBlock` happens, and we loop through the block,
-undoing transactions. I am guessing this is only relevant in the case of a
-chainsplit, not hugely important to IBD.
+undoing transactions.
+
+Here's a breakdown of what it does:
+
+- If the coin is unspendable, return without doing anything since there's no
+  need for it to come back into our cache.
+- Emplace the outpoint (key) into our `CCoinsMap cacheCoins` with an empty
+  `CCoinsCacheEntry` (value). Since this is an unordered map, emplace will
+  gracefully fail if the outpoint already exists in our cache, leaving the
+  original `{COutPoint, CCoinsCacheEntry}` pair in the map, and setting
+  `CCoinsMap::iterator it` to point to it.
+
+        Importantly, if the outpoint was not already in the cache, then the
+        empty constructor is called for the new CCoinsCacheEntry and it's
+        corresponding Coin. Remember that spentness of a Coin is indicated by
+        setting it's `CTxOut` null, so at this point the Coin is 'spent'. See
+        Coin::IsSpent() and `CTxOut::SetNull()`.
+
+- Subtract the newly emplaced or existing coin's `DynamicMemoryUsage` from the
+  cache's `size_t cachedCoinsUsage`.
+
+- If the received parameter `possible_overwrite` == False, then:
+    - Throw an error if the coin is unspent, this could only be the case if the
+      outpoint was already in the cache, but possible_overwrite is set to false,
+      indicating that `AddCoin` should not overwrite any existing cache entries.
+    - At this point we know the coin is spent, if the Coin's DIRTY flag is not
+      set, then the backing cache either doesn't know of this coin or knows it
+      as spent, so we can mark the coin pointed to by the iterator (whether
+      newly emplaced or having an existed outpoint that is located) as FRESH, so
+      we set a local variable `bool fresh = true` and will do this later,
+      otherwise `bool fresh = false`.
+- Move the received `Coin&& coin` into the coin of the `CCoinsCacheEntry`
+  (pointed to by the iterator `it`). Set this newly moved in coin's dirty flag
+  to true, and set it's fresh flag equal to whatever we decided above and stored
+  in `bool fresh`.
+  ```cpp
+  it->second.flags |= CCoinsCacheEntry::DIRTY | (fresh ? CCoinsCacheEntry::FRESH : 0);
+  ```
+
+- Add the newly moved in coin's `DynamicMemoryUsage` into the CCoinsViewCache's
+  `cachedCoinsUsage`.
+
+Between the risk of underflow if the type of `cachedCoinsUsage` changes and the
+fact that cachedCoinUsage is decremented even if an error is thrown due to a 
+possible overwrite, it seems to me that the decrement block:
+```cpp
+if (!inserted) {
+    cachedCoinsUsage -= it->second.coin.DynamicMemoryUsage();
+}
+```
+
+should be moved below the increment block. Is this important enough to warrant a
+PR?
+
+    🔎 Question: Why isn't the case of overwriting a spent coin when
+    `possible_overwrite == false` handled?
+
+    ⧙ Tentative Answer: There is no meaningful existence of a `Coin` that is
+    spent, since its `CTxOut` is null, and all that a `Coin` is, is a CTxOut, a
+    boolean fCoinBase indicating whether it is from a coinbase tx, and `uint32_t
+    nHeight` indicating the height it was included.
 
 <details>
 
