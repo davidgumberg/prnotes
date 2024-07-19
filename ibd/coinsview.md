@@ -577,6 +577,9 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possi
         fresh = !(it->second.flags & CCoinsCacheEntry::DIRTY);
     }
     it->second.coin = std::move(coin);
+    // [ This moment is a bit trickier then it seems at first sight:
+    //   In the case where the iterator points to an already existing
+    //   CCoinsCacheEntry that is FRESH, it will remain FRESH. ]
     it->second.flags |= CCoinsCacheEntry::DIRTY | (fresh ? CCoinsCacheEntry::FRESH : 0);
     cachedCoinsUsage += it->second.coin.DynamicMemoryUsage();
     TRACE5(utxocache, add,
