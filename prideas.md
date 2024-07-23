@@ -4,3 +4,5 @@
 - Make the low disk space check in `AppInitMain` calculate
   `additional_bytes_needed` as additional bytes needed instead of total bytes
   needed.
+- More consistently respect `-logips`/`fLogIPs`.
+
