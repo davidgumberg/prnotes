@@ -7,7 +7,6 @@
 
 <summary>CDBWrapper Annotated</summary>
 
-
 ```cpp
 class CDBWrapper
 {
@@ -152,14 +151,11 @@ public:
 
 ## `CCoinsViewDB::BatchWrite`
 
-Called by `CCoinsViewCache::Flush()`. All that `Flush` does is call BatchWrite(),
-with `bool erase = true`, and ensure that the cache is indeed empty.
+Called by `CCoinsViewCache::Flush()`. All that `Flush` does is call the backing CCoinsView cache's BatchWrite(), with `bool erase = true`, and ensure that the cache is indeed empty.
 
 <details>
 
-<summary>
-
-</summary>
+<summary>`CCoinsViewDB::BatchWrite`</summary>
 
 ```cpp
 bool CCoinsViewDB::BatchWrite(CCoinsMap &nsvmapCoins, const uint256 &hashBlock, bool erase) {

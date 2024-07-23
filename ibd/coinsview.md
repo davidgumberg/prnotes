@@ -133,6 +133,15 @@ our coin cache.
 
     🙋Question: Why isn't database error handling built in to CCoinsViewDB?
 
+Importantly, we do see a CCoinsViewCache backed by another CCoinsViewCache
+whenever `Chainstate::ConnectTip` happens. When connecting a block to our tip we
+create a temporary `CCoinsViewCache view` backed by the `CCoinsViewCache&
+Chainstate::CoinsTip()` CoinsView and connect the block to `view` and
+`view.flush()` once we're all done. It seems like this is done partially because
+block validation and block connection logic are conjoined and also to ensure
+some sort of atomicity when performing block connection.[^1]
+
+
 <details>
 
 <summary>Source code for the `CCoinsView` base class</summary>
@@ -495,6 +504,7 @@ Here's a breakdown of what it does:
 Between the risk of underflow if the type of `cachedCoinsUsage` changes and the
 fact that cachedCoinUsage is decremented even if an error is thrown due to a 
 possible overwrite, it seems to me that the decrement block:
+
 ```cpp
 if (!inserted) {
     cachedCoinsUsage -= it->second.coin.DynamicMemoryUsage();
@@ -592,14 +602,142 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possi
 ```
 </details>
 
+#### `CCoinsViewCache::BatchWrite()`
 
-#### `void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possible_overwrite)`
+It took me a while to find where this is called, since `CCoinsViewCache::BatchWrite`
+would only be called if a cache view was the parent/backing cache of a cache
+that got sync'ed or flushed, and in the `CoinsViews` cache scheme which I mention
+above, the CCoinsViewCache doesn't back anything.
+
+But, as it turns out, whenever we connect a block to our chaintip, we make a
+temporary CCoinsViewCache backed by our canonical cache, and connect the new
+block to the temporary CCoinsViewCache and then flush to the canonical cache. I
+discuss this above.
 
 <details>
 
-<summary></summary>
+<summary>
+
+`bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn, bool erase)`
+
+</summary>
+
 
 ```cpp
+bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn, bool erase) {
+    for (CCoinsMap::iterator it = mapCoins.begin();
+            it != mapCoins.end();
+            it = erase ? mapCoins.erase(it) : std::next(it)) {
+        // Ignore non-dirty entries (optimization).
+        if (!(it->second.flags & CCoinsCacheEntry::DIRTY)) {
+            continue;
+        }
+        CCoinsMap::iterator itUs = cacheCoins.find(it->first);
+        if (itUs == cacheCoins.end()) {
+            // The parent cache does not have an entry, while the child cache does.
+            // We can ignore it if it's both spent and FRESH in the child
+            if (!(it->second.flags & CCoinsCacheEntry::FRESH && it->second.coin.IsSpent())) {
+                // Create the coin in the parent cache, move the data up
+                // and mark it as dirty.
+                CCoinsCacheEntry& entry = cacheCoins[it->first];
+                if (erase) {
+                    // The `move` call here is purely an optimization; we rely on the
+                    // `mapCoins.erase` call in the `for` expression to actually remove
+                    // the entry from the child map.
+                    entry.coin = std::move(it->second.coin);
+                } else {
+                    entry.coin = it->second.coin;
+                }
+                cachedCoinsUsage += entry.coin.DynamicMemoryUsage();
+                entry.flags = CCoinsCacheEntry::DIRTY;
+                // We can mark it FRESH in the parent if it was FRESH in the child
+                // Otherwise it might have just been flushed from the parent's cache
+                // and already exist in the grandparent
+                if (it->second.flags & CCoinsCacheEntry::FRESH) {
+                    entry.flags |= CCoinsCacheEntry::FRESH;
+                }
+            }
+        } else {
+            // Found the entry in the parent cache
+            if ((it->second.flags & CCoinsCacheEntry::FRESH) && !itUs->second.coin.IsSpent()) {
+                // The coin was marked FRESH in the child cache, but the coin
+                // exists in the parent cache. If this ever happens, it means
+                // the FRESH flag was misapplied and there is a logic error in
+                // the calling code.
+                throw std::logic_error("FRESH flag misapplied to coin that exists in parent cache");
+            }
+
+            if ((itUs->second.flags & CCoinsCacheEntry::FRESH) && it->second.coin.IsSpent()) {
+                // The grandparent cache does not have an entry, and the coin
+                // has been spent. We can just delete it from the parent cache.
+                cachedCoinsUsage -= itUs->second.coin.DynamicMemoryUsage();
+                cacheCoins.erase(itUs);
+            } else {
+                // A normal modification.
+                cachedCoinsUsage -= itUs->second.coin.DynamicMemoryUsage();
+                if (erase) {
+                    // The `move` call here is purely an optimization; we rely on the
+                    // `mapCoins.erase` call in the `for` expression to actually remove
+                    // the entry from the child map.
+                    itUs->second.coin = std::move(it->second.coin);
+                } else {
+                    itUs->second.coin = it->second.coin;
+                }
+                cachedCoinsUsage += itUs->second.coin.DynamicMemoryUsage();
+                itUs->second.flags |= CCoinsCacheEntry::DIRTY;
+                // NOTE: It isn't safe to mark the coin as FRESH in the parent
+                // cache. If it already existed and was spent in the parent
+                // cache then marking it FRESH would prevent that spentness
+                // from being flushed to the grandparent.
+            }
+        }
+    }
+    hashBlock = hashBlockIn;
+    return true;
+}
 ```
 
+
 </details>
+
+### Cursors
+
+#### `CCoinsViewCursor`
+<details>
+
+`CCoinsViewCursor` is a prototype class for cursors are used to iterate over the
+state of a `CCoinsView`. A `CCoinsViewCursor` has a private attribute `uint256
+hashBlock` that represents the best block at the time the cursor was created. It
+also has methods for getting and going to the next iterator.
+
+Briefly, CCoinsViewCursor's only implementation is in CCoinsViewDBCursor, which
+itself is mainly a wrapper for a CDBIterator that iterates over leveldb.
+
+<summary>`CCoinsViewCursor`</summary>
+
+
+```cpp
+/** Cursor for iterating over CoinsView state */
+class CCoinsViewCursor
+{
+public:
+    CCoinsViewCursor(const uint256 &hashBlockIn): hashBlock(hashBlockIn) {}
+    virtual ~CCoinsViewCursor() = default;
+
+    virtual bool GetKey(COutPoint &key) const = 0;
+    virtual bool GetValue(Coin &coin) const = 0;
+
+    virtual bool Valid() const = 0;
+    virtual void Next() = 0;
+
+    //! Get best block at the time this cursor was created
+    const uint256 &GetBestBlock() const { return hashBlock; }
+private:
+    uint256 hashBlock;
+};
+```
+
+
+</details>
+
+[^1]: https://github.com/bitcoin/bitcoin/commit/75f51f2a63e0ebe34ab290c2b7141dd240b98c3b
