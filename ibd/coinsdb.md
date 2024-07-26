@@ -2,6 +2,8 @@
 
 ## `class CDBWrapper`
 
+Should IsEmpty be const?
+
 <details>
 
 
