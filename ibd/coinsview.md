@@ -724,6 +724,10 @@ Namely:
    spent and `FRESH`, the backing view either doesn't know the coin, or knows it
    as spent, and so our view is not `DIRTY`.
 
+It also recomputes memory usage by running `entry.coin.DynamicMemoryUsage()` for
+every `entry` in the cache, and `assert`s that this sum is euqal to the view's
+`cachedCoinUsage`.
+
 <details>
 
 <summary>
@@ -749,6 +753,52 @@ void CCoinsViewCache::SanityCheck() const
         recomputed_usage += entry.coin.DynamicMemoryUsage();
     }
     assert(recomputed_usage == cachedCoinsUsage);
+}
+```
+
+
+
+</details>
+
+#### `CCoinsViewCache::Uncache()`
+
+
+Added in [#6872](https://github.com/bitcoin/bitcoin/pull/6872)
+
+`Uncache` simply finds and deletes a given `COutpoint& hash` in the
+CCoinsViewCache's cache map.
+
+
+
+On first glance, `Uncache()` seems a bit dangerous to me.
+
+
+<details>
+
+<summary>
+
+`CCoinsViewCache::Uncache()` annotated source.
+
+</summary>
+
+```cpp
+void CCoinsViewCache::Uncache(const COutPoint& hash)
+{
+    // [ Search the map for the given `hash` ]
+    CCoinsMap::iterator it = cacheCoins.find(hash);
+    // [ If we find it *and* it is neither FRESH nor DIRTY... ]
+    if (it != cacheCoins.end() && it->second.flags == 0) {
+        // [ Track the change in memory usage... ]
+        cachedCoinsUsage -= it->second.coin.DynamicMemoryUsage();
+        TRACE5(utxocache, uncache,
+               hash.hash.data(),
+               (uint32_t)hash.n,
+               (uint32_t)it->second.coin.nHeight,
+               (int64_t)it->second.coin.out.nValue,
+               (bool)it->second.coin.IsCoinBase());
+        // [ And erase it. ]
+        cacheCoins.erase(it);
+    }
 }
 ```
 

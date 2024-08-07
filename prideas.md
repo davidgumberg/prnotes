@@ -11,3 +11,5 @@
 - Sometimes headers pre-synchronization is really slow
     - My assumption is we may get unlucky with the speed of the peer we choose
       for doing this?
+- [Add](https://github.com/bitcoin/bitcoin/pull/28280/commits/8737c0cefa6ec49a4d17d9bef9e5e1a7990af1ac#r1703187118)
+  a move constructor for `Coin`.
