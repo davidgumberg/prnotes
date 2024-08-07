@@ -697,12 +697,68 @@ bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn
 }
 ```
 
+</details>
+
+#### `CCoinsViewCache::SanityCheck`
+
+Added in [#27011](https://github.com/bitcoin/bitcoin/pull/27011),
+`CCoinsViewCache::SanityCheck()` is used by the fuzze
+
+It checks that none of the invalid states of a `CCoinsCacheEntry` described
+above occur in any of the entries in the `CCoinsViewCache`.
+
+Namely:
+
+1. There are no coins that are `FRESH`, not `DIRTY`, and unspent. Since, if a
+   coin is not DIRTY, the cache's version does not differ from the backing
+   view's version. Since it's `FRESH` the backing view either doesn't know about
+   the coin or knows about it and believes it to be spent. Since the coin is in
+   fact unspent, it must either be `FRESH` since the backing view knows it to be
+   spent, or it must be `DIRTY` since the backing view still sees it as unspent.
+
+2. There are no coins that are spent and are neither `FRESH` nor `DIRTY`. Since
+   the coin is spent, the backing view either knows it as spent and the coin is
+   `FRESH`, or it doesn't know it as spent and the coin is `DIRTY`.
+
+3. There are no coins that are spent, `DIRTY` and `FRESH`. Since if a coin is
+   spent and `FRESH`, the backing view either doesn't know the coin, or knows it
+   as spent, and so our view is not `DIRTY`.
+
+<details>
+
+<summary>
+
+`CCoinsViewCache::SanityCheck` Annotated
+
+</summary>
+
+
+```cpp
+void CCoinsViewCache::SanityCheck() const
+{
+    size_t recomputed_usage = 0;
+    for (const auto& [_, entry] : cacheCoins) {
+        unsigned attr = 0;
+        if (entry.flags & CCoinsCacheEntry::DIRTY) attr |= 1;
+        if (entry.flags & CCoinsCacheEntry::FRESH) attr |= 2;
+        if (entry.coin.IsSpent()) attr |= 4;
+        // Only 5 combinations are possible.
+        assert(attr != 2 && attr != 4 && attr != 7);
+
+        // Recompute cachedCoinsUsage.
+        recomputed_usage += entry.coin.DynamicMemoryUsage();
+    }
+    assert(recomputed_usage == cachedCoinsUsage);
+}
+```
+
 
 </details>
 
 ### Cursors
 
 #### `CCoinsViewCursor`
+
 <details>
 
 `CCoinsViewCursor` is a prototype class for cursors are used to iterate over the
@@ -736,7 +792,6 @@ private:
     uint256 hashBlock;
 };
 ```
-
 
 </details>
 
