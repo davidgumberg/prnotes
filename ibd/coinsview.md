@@ -614,6 +614,9 @@ temporary CCoinsViewCache backed by our canonical cache, and connect the new
 block to the temporary CCoinsViewCache and then flush to the canonical cache. I
 discuss this above.
 
+`BatchWrite` receives from the caller (the child) a reference to its
+`CCoinMap cacheCoins`.
+
 <details>
 
 <summary>
@@ -624,31 +627,50 @@ discuss this above.
 
 
 ```cpp
+// [ We are a backing view being flushed to. The child-caller passes us it's
+//   cache map as &mapcoins, and the hash of it's chaintip as &hashBlockin ]
 bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn, bool erase) {
     for (CCoinsMap::iterator it = mapCoins.begin();
             it != mapCoins.end();
-            it = erase ? mapCoins.erase(it) : std::next(it)) {
+            it = erase ? mapCoins.erase(it) : std::next(it)) { // [ std::unordered_map::erase returns an iterator to the element following the removed ]
         // Ignore non-dirty entries (optimization).
         if (!(it->second.flags & CCoinsCacheEntry::DIRTY)) {
             continue;
         }
+        // [ Look to see if we already have the entry that the child view is
+        //   flushing into us... ]
         CCoinsMap::iterator itUs = cacheCoins.find(it->first);
+        // [ If we didn't... ]
         if (itUs == cacheCoins.end()) {
+            // [ We are the parent, the caller who owns 'mapcoins' is the child.
+            //   If the child says the entry is fresh & spent, that means we
+            //   either don't know about it, or know about it and think it's
+            //   spent, so there is no need for us to become informed of it. ]
+
             // The parent cache does not have an entry, while the child cache does.
             // We can ignore it if it's both spent and FRESH in the child
             if (!(it->second.flags & CCoinsCacheEntry::FRESH && it->second.coin.IsSpent())) {
+                // [ Subscript operator with a key that doesn't exist in a map
+                //   constructs the key in place using your argument, and
+                //   default constructs the value. ]
+
                 // Create the coin in the parent cache, move the data up
                 // and mark it as dirty.
                 CCoinsCacheEntry& entry = cacheCoins[it->first];
                 if (erase) {
+                    // [ if erase == true then we can take ownership of the
+                    //   entry from the child before we destroy the child's
+                    //   cache... ] 
                     // The `move` call here is purely an optimization; we rely on the
                     // `mapCoins.erase` call in the `for` expression to actually remove
                     // the entry from the child map.
                     entry.coin = std::move(it->second.coin);
                 } else {
+                    // [ ...otherwise we do a copy ]
                     entry.coin = it->second.coin;
                 }
                 cachedCoinsUsage += entry.coin.DynamicMemoryUsage();
+                // [ We need to tell *our* parent about this... ]
                 entry.flags = CCoinsCacheEntry::DIRTY;
                 // We can mark it FRESH in the parent if it was FRESH in the child
                 // Otherwise it might have just been flushed from the parent's cache
@@ -667,14 +689,18 @@ bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn
                 throw std::logic_error("FRESH flag misapplied to coin that exists in parent cache");
             }
 
+            // [ If we have the entry as fresh (our parent doesn't have it /
+            //   knows it's spent) then we can just delete it from ourselves. ]
             if ((itUs->second.flags & CCoinsCacheEntry::FRESH) && it->second.coin.IsSpent()) {
                 // The grandparent cache does not have an entry, and the coin
                 // has been spent. We can just delete it from the parent cache.
                 cachedCoinsUsage -= itUs->second.coin.DynamicMemoryUsage();
                 cacheCoins.erase(itUs);
+            // [
             } else {
                 // A normal modification.
                 cachedCoinsUsage -= itUs->second.coin.DynamicMemoryUsage();
+                // [ Take ownership since the child is going to be destroyed... ]
                 if (erase) {
                     // The `move` call here is purely an optimization; we rely on the
                     // `mapCoins.erase` call in the `for` expression to actually remove
@@ -830,7 +856,8 @@ public:
     CCoinsViewCursor(const uint256 &hashBlockIn): hashBlock(hashBlockIn) {}
     virtual ~CCoinsViewCursor() = default;
 
-    virtual bool GetKey(COutPoint &key) const = 0;
+    // [ pure virtual methods ]
+    virtual bool GetKey(COutPoint &key) const = 0; 
     virtual bool GetValue(Coin &coin) const = 0;
 
     virtual bool Valid() const = 0;
