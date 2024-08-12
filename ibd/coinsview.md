@@ -1,6 +1,12 @@
 # `CCoinsView`
 _All code comments in `[]` are my own._
 
+_I took these notes to describe the existing behavior of CCoinsView* during the
+course of reviewing [#28280](https://github.com/bitcoin/bitcoin/pull/28280)
+which has since been merged, I will try to update this document to reflect the
+new status quo, but there may be some outdated information in here about
+CCoinsViewCache._
+
 First, an incomplete picture:
 <pre>
                                   CCoinsView        
@@ -725,6 +731,40 @@ bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn
 
 </details>
 
+#### `CCoinsViewCache::Sync()`
+
+<details>
+
+
+<summary>
+
+`CCoinsViewCache:;Sync()` annotated
+
+</summary>
+
+
+```cpp
+bool CCoinsViewCache::Sync()
+{
+    auto cursor{CoinsViewCacheCursor(cachedCoinsUsage, m_sentinel, cacheCoins, /*will_erase=*/false)};
+    bool fOk = base->BatchWrite(cursor, hashBlock);
+    // Instead of clearing `cacheCoins` as we would in Flush(), just clear the
+    // FRESH/DIRTY flags of any coin that isn't spent.
+    for (auto it = cacheCoins.begin(); it != cacheCoins.end(); ) {
+        if (it->second.coin.IsSpent()) {
+            cachedCoinsUsage -= it->second.coin.DynamicMemoryUsage();
+            it = cacheCoins.erase(it);
+        } else {
+            it->second.ClearFlags();
+            ++it;
+        }
+    }
+    return fOk;
+}
+```
+
+</details>
+
 #### `CCoinsViewCache::SanityCheck`
 
 Added in [#27011](https://github.com/bitcoin/bitcoin/pull/27011),
@@ -781,7 +821,6 @@ void CCoinsViewCache::SanityCheck() const
     assert(recomputed_usage == cachedCoinsUsage);
 }
 ```
-
 
 
 </details>
