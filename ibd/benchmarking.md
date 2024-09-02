@@ -30,3 +30,7 @@ The variables that were changed were dbcache and pruning.
    MiB)
 
 achow added benchmark logging for time to read 
+
+# Other thoughts
+
+- How many times does FetchCoin fall back to disk?  _Add a log and measure?_
