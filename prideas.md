@@ -13,3 +13,6 @@
       for doing this?
 - [Add](https://github.com/bitcoin/bitcoin/pull/28280/commits/8737c0cefa6ec49a4d17d9bef9e5e1a7990af1ac#r1703187118)
   a move constructor for `Coin`.
+  - Another contributor has an open PR for this:
+    [bitcoin/bitcoin#30643](https://github.com/bitcoin/bitcoin/pull/30643)
+- Avoid an unnecessary copy with struct CoinsEntry
