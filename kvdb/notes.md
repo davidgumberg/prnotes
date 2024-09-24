@@ -1,3 +1,20 @@
+What would be desirable in a leveldb alternative?
+
+1. Performance improvements:
+    - Faster IBD.
+    - Faster block connection.
+    - Faster wallet importing
+    - Lower storage requirements
+    - Less I/O, less storage wear.
+2. Reliability improvements:
+    - More durable
+3. Features:
+    - Multiple readers
+
+It seems to me unlikely that any DB is likely to do all of those things better
+than leveldb, and whatever improvements in these areas exist are likely to
+depend on hardware/use-case.
+
 # Questions for any alternative to leveldb
 
 - Does it support 32-bit platforms?
@@ -29,3 +46,14 @@ Values are serialized as:
             - Worst case:  16507 bytes.
 
 
+## Rocksdb
+
+From the [FAQ](https://github.com/facebook/rocksdb/wiki/rocksdb-faq) of
+rocksdb:
+
+    **Q: Is it safe to close RocksDB while another thread is issuing read, write
+    or manual compaction requests?**
+
+    No. The users of RocksDB need to make sure all functions have finished
+    before they close RocksDB. You can speed up the waiting by calling
+    DisableManualCompaction().
