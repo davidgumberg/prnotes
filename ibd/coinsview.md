@@ -147,7 +147,6 @@ Chainstate::CoinsTip()` CoinsView and connect the block to `view` and
 block validation and block connection logic are conjoined and also to ensure
 some sort of atomicity when performing block connection.[^1]
 
-
 <details>
 
 <summary>Source code for the `CCoinsView` base class</summary>
@@ -618,7 +617,7 @@ above, the CCoinsViewCache doesn't back anything.
 But, as it turns out, whenever we connect a block to our chaintip, we make a
 temporary CCoinsViewCache backed by our canonical cache, and connect the new
 block to the temporary CCoinsViewCache and then flush to the canonical cache. I
-discuss this above.
+discuss this [above](#class-ccoinsview).
 
 `BatchWrite` receives from the caller (the child) a reference to its
 `CCoinMap cacheCoins`.
