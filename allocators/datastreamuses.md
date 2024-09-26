@@ -443,5 +443,777 @@ void PSBTOperationsDialog::saveTransaction() {
 
 --------
 
+In `src/qt/recentrequestsstablemodel.cpp`:
+
+```cpp
+// called when adding a request from the GUI
+void RecentRequestsTableModel::addNewRequest(const SendCoinsRecipient &recipient)
+{
+    RecentRequestEntry newEntry;
+    newEntry.id = ++nReceiveRequestsMaxId;
+    newEntry.date = QDateTime::currentDateTime();
+    newEntry.recipient = recipient;
+
+    DataStream ss{};
+    ss << newEntry;
+
+    if (!walletModel->wallet().setAddressReceiveRequest(DecodeDestination(recipient.address.toStdString()), ToString(newEntry.id), ss.str()))
+        return;
+
+    addNewRequest(newEntry);
+}
+```
+
+I am not very familiar with the GUI but as far as I can tell the
+`RecentRequestsTable` stores and displays receive addresses / payment requests
+that you've generated. Here the `SendCoinsRecipient` of payment request consists
+of an address, a label, an amount, and a memo/message. We serialize the
+recipient and other data about the request, an ID, and a date/time for the
+request, and then pass the string into a function which will store it in the
+`RecentRequestsTable`.
+
+--------
+
+In `src/qt/sendcoinsdialog.cpp`:
+
+```cpp
+void SendCoinsDialog::presentPSBT(PartiallySignedTransaction& psbtx)
+{
+    // Serialize the PSBT
+    DataStream ssTx{};
+    ssTx << psbtx;
+    GUIUtil::setClipboard(EncodeBase64(ssTx.str()).c_str());
+    QMessageBox msgBox(this);
+    //: Caption of "PSBT has been copied" messagebox
+    msgBox.setText(tr("Unsigned Transaction", "PSBT copied"));
+    msgBox.setInformativeText(tr("The PSBT has been copied to the clipboard. You can also save it."));
+    msgBox.setStandardButtons(QMessageBox::Save | QMessageBox::Discard);
+    msgBox.setDefaultButton(QMessageBox::Discard);
+    msgBox.setObjectName("psbt_copied_message");
+    switch (msgBox.exec()) {
+    case QMessageBox::Save: {
+        QString selectedFilter;
+        QString fileNameSuggestion = "";
+        bool first = true;
+        for (const SendCoinsRecipient &rcp : m_current_transaction->getRecipients()) {
+            if (!first) {
+                fileNameSuggestion.append(" - ");
+            }
+            QString labelOrAddress = rcp.label.isEmpty() ? rcp.address : rcp.label;
+            QString amount = BitcoinUnits::formatWithUnit(model->getOptionsModel()->getDisplayUnit(), rcp.amount);
+            fileNameSuggestion.append(labelOrAddress + "-" + amount);
+            first = false;
+        }
+        fileNameSuggestion.append(".psbt");
+        QString filename = GUIUtil::getSaveFileName(this,
+            tr("Save Transaction Data"), fileNameSuggestion,
+            //: Expanded name of the binary PSBT file format. See: BIP 174.
+            tr("Partially Signed Transaction (Binary)") + QLatin1String(" (*.psbt)"), &selectedFilter);
+        if (filename.isEmpty()) {
+            return;
+        }
+        std::ofstream out{filename.toLocal8Bit().data(), std::ofstream::out | std::ofstream::binary};
+        out << ssTx.str();
+        out.close();
+        //: Popup message when a PSBT has been saved to a file
+        Q_EMIT message(tr("PSBT saved"), tr("PSBT saved to disk"), CClientUIInterface::MSG_INFORMATION);
+        break;
+    }
+    case QMessageBox::Discard:
+        break;
+    default:
+        assert(false);
+    } // msgBox.exec()
+}
+```
+
+Here it's used to serialize the PSBT in order to display it to the user during
+the process of sending in the GUI.
 
 
+---------
+
+In `src/qt/walletmodel.cpp`:
+
+`DataStream`'s are used to serialize PSBT's when fee bumping a stuck transaction
+in:
+
+```cpp
+bool WalletModel::bumpFee(uint256 hash, uint256& new_hash)
+```
+
+and to serialize the sent transaction in `WalletModel::sendCoins()`:
+
+```cpp
+void WalletModel::sendCoins(WalletModelTransaction& transaction)
+{
+    QByteArray transaction_array; /* store serialized transaction */
+
+    {
+        std::vector<std::pair<std::string, std::string>> vOrderForm;
+        for (const SendCoinsRecipient &rcp : transaction.getRecipients())
+        {
+            if (!rcp.message.isEmpty()) // Message from normal bitcoin:URI (bitcoin:123...?message=example)
+                vOrderForm.emplace_back("Message", rcp.message.toStdString());
+        }
+
+        auto& newTx = transaction.getWtx();
+        wallet().commitTransaction(newTx, /*value_map=*/{}, std::move(vOrderForm));
+
+        DataStream ssTx;
+        ssTx << TX_WITH_WITNESS(*newTx);
+        transaction_array.append((const char*)ssTx.data(), ssTx.size());
+    }
+
+    // Add addresses / update labels that we've sent to the address book,
+    // and emit coinsSent signal for each recipient
+    for (const SendCoinsRecipient &rcp : transaction.getRecipients())
+    {
+        // [...]
+        Q_EMIT coinsSent(this, rcp, transaction_array);
+    }
+
+    checkBalanceChanged(m_wallet->getBalances()); // update balance immediately, otherwise there could be a short noticeable delay until pollBalanceChanged hits
+}
+```
+
+-----------------------------
+
+In `src/rest.cpp`:
+
+`DataStream` is used by Bitcoin Core's REST interface to serialize responses to
+requests for headers in `rest_headers()`, blocks in `rest_block()`,
+blockfilterheaders in `rest_filter_header()` blockfilters in
+`rest_block_filter()`, tx's in `rest_tx()` utxo's in `rest_getutxos()` and
+blockhashes in `rest_blockhash_by_height()`.
+
+
+---------------------------
+
+In `src/rpc/blockchain.cpp`:
+
+`DataStream` is used to serialize the block header in the `getblockheader` rpc
+command:
+
+```cpp
+    if (!fVerbose)
+    {
+        DataStream ssBlock{};
+        ssBlock << pblockindex->GetBlockHeader();
+        std::string strHex = HexStr(ssBlock);
+        return strHex;
+    }
+```
+
+and to deserialize the block data into a `CBlock` in the `getblock` rpc command:
+
+```cpp
+    const std::vector<uint8_t> block_data{GetRawBlockChecked(chainman.m_blockman, *pblockindex)};
+
+    DataStream block_stream{block_data};
+    CBlock block{};
+    block_stream >> TX_WITH_WITNESS(block);
+
+    return blockToJSON(chainman.m_blockman, block, *tip, *pblockindex, tx_verbosity);
+```
+
+------------------
+
+In `src/rpc/mining.cpp`:
+
+`DataStream` is used by the `generateblock` rpc for serializing the output hex
+of a generated block when `generateblock` is called with `submit=false`:
+
+```cpp
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("hash", block_out->GetHash().GetHex());
+    if (!process_new_block) {
+        DataStream block_ser;
+        block_ser << TX_WITH_WITNESS(*block_out);
+        obj.pushKV("hex", HexStr(block_ser));
+    }
+```
+
+----------------
+
+In `src/rpc/rawtransaction.cpp`:
+
+`DataStream` is used to serialize the resulting PSBT's that get passed to
+`EncodeBase64()` and returned in
+`combinepsbt`:
+
+```cpp
+static RPCHelpMan combinepsbt()
+    // [ ..preparing merged_psbt.. ]
+
+    DataStream ssTx{};
+    ssTx << merged_psbt;
+    return EncodeBase64(ssTx);
+```
+
+and `finalizepsbt()` which also might serialize the final transaction hex using
+a `DataStream` of `TX_WITH_WITNESS(tx)` passed to `HexStr()`:
+
+```cpp
+static RPCHelpMan finalizepsbt()
+{
+    // Unserialize the transactions
+    PartiallySignedTransaction psbtx;
+    std::string error;
+    if (!DecodeBase64PSBT(psbtx, request.params[0].get_str(), error)) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, strprintf("TX decode failed %s", error));
+    }
+
+    bool extract = request.params[1].isNull() || (!request.params[1].isNull() && request.params[1].get_bool());
+
+    CMutableTransaction mtx;
+    bool complete = FinalizeAndExtractPSBT(psbtx, mtx);
+
+    UniValue result(UniValue::VOBJ);
+    DataStream ssTx{};
+    std::string result_str;
+
+    if (complete && extract) {
+        ssTx << TX_WITH_WITNESS(mtx);
+        result_str = HexStr(ssTx);
+        result.pushKV("hex", result_str);
+    } else {
+        ssTx << psbtx;
+        result_str = EncodeBase64(ssTx.str());
+        result.pushKV("psbt", result_str);
+    }
+    result.pushKV("complete", complete);
+
+    return result;
+}
+```
+
+and in `createpsbt`:
+
+```cpp
+static RPCHelpMan createpsbt()
+{
+
+    std::optional<bool> rbf;
+    if (!request.params[3].isNull()) {
+        rbf = request.params[3].get_bool();
+    }
+    CMutableTransaction rawTx = ConstructTransaction(request.params[0], request.params[1], request.params[2], rbf);
+
+    // Make a blank psbt
+    PartiallySignedTransaction psbtx;
+    psbtx.tx = rawTx;
+    for (unsigned int i = 0; i < rawTx.vin.size(); ++i) {
+        psbtx.inputs.emplace_back();
+    }
+    for (unsigned int i = 0; i < rawTx.vout.size(); ++i) {
+        psbtx.outputs.emplace_back();
+    }
+
+    // Serialize the PSBT
+    DataStream ssTx{};
+    ssTx << psbtx;
+
+    return EncodeBase64(ssTx);
+}
+```
+
+and in `utxoupdatepsbt()`:
+
+```cpp
+static RPCHelpMan utxoupdatepsbt()
+{
+    // Parse descriptors, if any.
+    FlatSigningProvider provider;
+    if (!request.params[1].isNull()) {
+        auto descs = request.params[1].get_array();
+        for (size_t i = 0; i < descs.size(); ++i) {
+            EvalDescriptorStringOrObject(descs[i], provider);
+        }
+    }
+
+    // We don't actually need private keys further on; hide them as a precaution.
+    const PartiallySignedTransaction& psbtx = ProcessPSBT(
+        request.params[0].get_str(),
+        request.context,
+        HidingSigningProvider(&provider, /*hide_secret=*/true, /*hide_origin=*/false),
+        /*sighash_type=*/SIGHASH_ALL,
+        /*finalize=*/false);
+
+    DataStream ssTx{};
+    ssTx << psbtx;
+    return EncodeBase64(ssTx);
+}
+```
+
+and `joinpsbts`:
+
+```cpp
+static RPCHelpMan joinpsbts()
+    // [ ... prepare PartiallySignedTransaction shuffled psbt ... ]
+    DataStream ssTx{};
+    ssTx << shuffled_psbt;
+    return EncodeBase64(ssTx);
+}
+```
+
+and in `descriptorprocesspsbt`, which like `finalizepsbt` above might also
+use `DataStream` for serializing a final transaction hex that gets passed to
+`HexStr` and return if the psbt is complete:
+
+
+```cpp
+RPCHelpMan descriptorprocesspsbt()
+    // [ ...prepare PartiallySignedTransaction &psbtx... ]
+    DataStream ssTx{};
+    ssTx << psbtx;
+
+    UniValue result(UniValue::VOBJ);
+
+    result.pushKV("psbt", EncodeBase64(ssTx));
+    result.pushKV("complete", complete);
+    if (complete) {
+        CMutableTransaction mtx;
+        PartiallySignedTransaction psbtx_copy = psbtx;
+        CHECK_NONFATAL(FinalizeAndExtractPSBT(psbtx_copy, mtx));
+        DataStream ssTx_final;
+        ssTx_final << TX_WITH_WITNESS(mtx);
+        result.pushKV("hex", HexStr(ssTx_final));
+    }
+    return result;
+}
+```
+
+------
+
+In `src/rpc/txoutproof`:
+
+It is used for serializing the merkle inclusion proof in `gettxoutproof()`:
+
+```cpp
+static RPCHelpMan gettxoutproof()
+{
+    // [...]
+
+    DataStream ssMB{};
+    CMerkleBlock mb(block, setTxids);
+    ssMB << mb;
+    std::string strHex = HexStr(ssMB);
+    return strHex;
+}
+```
+
+and for deserializing the inclusion proof in `verifytxoutproof`:
+
+```cpp
+static RPCHelpMan verifytxoutproof()
+{
+    DataStream ssMB{ParseHexV(request.params[0], "proof")};
+    CMerkleBlock merkleBlock;
+    ssMB >> merkleBlock;
+
+    // [ ... Validate merkleBlock ... ] 
+}
+```
+
+-------
+
+## Wallet
+
+If wallet is unencrypted on disk, I feel there is no reason for us to be delicate about
+how it is handled in memory.
+
+### How wallet disk encryption happens
+
+My understanding of the way that wallet encryption on disk works is that keys
+and values are written and read by the wallet in crypted form, and they are
+decrypted/encrypted in memory by `ScriptPubKeyMan`, for example:
+
+```cpp
+// [ Getting the private key for `CKeyID` address and storing the result 
+//   in `CKey& keyOut` ]
+bool LegacyDataSPKM::GetKey(const CKeyID &address, CKey& keyOut) const
+{
+    LOCK(cs_KeyStore);
+    if (!m_storage.HasEncryptionKeys()) {
+        return FillableSigningProvider::GetKey(address, keyOut);
+    }
+
+    // [ a map of crypted keys is created on legacy wallet load in
+    //   `LoadLegacyWalletRecords()` ]
+    CryptedKeyMap::const_iterator mi = mapCryptedKeys.find(address);
+    if (mi != mapCryptedKeys.end())
+    {
+        const CPubKey &vchPubKey = (*mi).second.first;
+        const std::vector<unsigned char> &vchCryptedSecret = (*mi).second.second;
+        // [ Use the encryption key to decrypt the crypted key from the map. ]
+        return m_storage.WithEncryptionKey([&](const CKeyingMaterial& encryption_key) {
+            return DecryptKey(encryption_key, vchCryptedSecret, vchPubKey, keyOut);
+        });
+    }
+    return false;
+}
+```
+
+Because of this, we should not be vigilant about securing memory that contains
+crypted data from the disk.
+
+------
+
+In `src/wallet/bdb.cpp`:
+
+`BerkeleyDatabase::Rewrite()` uses `DataStream` to serialize the keys and values
+from the existing db when rewriting the database. 
+
+`BerkeleyDatabase::Rewrite()` is used when encrypting a wallet for the first
+time, since, according to comments "BDB might keep bits of the unencrypted
+private key in slack space in the database file." So there might be some concern
+that the unencrypted wallet db material will stick around in memory after the
+user has encrypted the wallet.
+
+`BerkeleyCursor::Next()` is used when cursoring through the BDB, and stores the
+retrieved Key and Value in DataStream's, if the wallet is encrypted these will
+be crypted, if not, the keys are on disk in plaintext anyways.
+
+`BerkeleyBatch::ReadKey()` retrieves the value for a given key in the database:
+
+```cpp
+bool BerkeleyBatch::ReadKey(DataStream&& key, DataStream& value)
+{
+    if (!pdb)
+        return false;
+
+    SafeDbt datKey(key.data(), key.size());
+
+    SafeDbt datValue;
+    int ret = pdb->get(activeTxn, datKey, datValue, 0);
+    if (ret == 0 && datValue.get_data() != nullptr) {
+        value.clear();
+        value.write(SpanFromDbt(datValue));
+        return true;
+    }
+    return false;
+}
+```
+
+This is not a concern because like above, this data is either in plaintext on
+disk, or it is being retrieved in crypted form and will be decrypted elsewhere
+by SPKM.
+
+Similar arguments to the above apply for `BerkeleyBatch::WriteKey()`,
+`BerkeleyBatch::EraseKey()`, and `BerkeleyBatch::HasKey()`
+
+-------
+
+In `src/wallet/db.h`:
+
+The same argument as above applies for keys and values used here in
+`DatabaseBatch` functions Read, Write, Erase, Exists:
+
+```cpp
+/** RAII class that provides access to a WalletDatabase */
+class DatabaseBatch
+{
+private:
+    virtual bool ReadKey(DataStream&& key, DataStream& value) = 0;
+    virtual bool WriteKey(DataStream&& key, DataStream&& value, bool overwrite = true) = 0;
+    virtual bool EraseKey(DataStream&& key) = 0;
+    virtual bool HasKey(DataStream&& key) = 0;
+
+public:
+    template <typename K, typename T>
+    bool Read(const K& key, T& value)
+    {
+        DataStream ssKey{};
+        ssKey.reserve(1000);
+        ssKey << key;
+
+        DataStream ssValue{};
+        if (!ReadKey(std::move(ssKey), ssValue)) return false;
+        try {
+            ssValue >> value;
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+
+    template <typename K, typename T>
+    bool Write(const K& key, const T& value, bool fOverwrite = true)
+    {
+        DataStream ssKey{};
+        ssKey.reserve(1000);
+        ssKey << key;
+
+        DataStream ssValue{};
+        ssValue.reserve(10000);
+        ssValue << value;
+
+        return WriteKey(std::move(ssKey), std::move(ssValue), fOverwrite);
+    }
+
+    template <typename K>
+    bool Erase(const K& key)
+    {
+        DataStream ssKey{};
+        ssKey.reserve(1000);
+        ssKey << key;
+
+        return EraseKey(std::move(ssKey));
+    }
+
+    template <typename K>
+    bool Exists(const K& key)
+    {
+        DataStream ssKey{};
+        ssKey.reserve(1000);
+        ssKey << key;
+
+        return HasKey(std::move(ssKey));
+    }
+};
+```
+
+-----
+
+In `dump.cpp`:
+
+`DumpWallet()` invoked by doing `bitcoin-wallet dump` prints all keys and values
+in a wallet, but does not decrypt them:
+
+```cpp
+// [ I've editorialized this codeblock to focus on the part I'm interested in ]
+bool DumpWallet(const ArgsManager& args, WalletDatabase& db, bilingual_str& error)
+{
+    // [.. handle dump file stuff ..]
+    std::unique_ptr<DatabaseBatch> batch = db.MakeBatch();
+    std::unique_ptr<DatabaseCursor> cursor = batch->GetNewCursor();
+
+    // Read the records
+    while (true) {
+        DataStream ss_key{};
+        DataStream ss_value{};
+        DatabaseCursor::Status status = cursor->Next(ss_key, ss_value);
+        if (status == DatabaseCursor::Status::DONE) {
+            ret = true;
+            break;
+        } else if (status == DatabaseCursor::Status::FAIL) {
+            error = _("Error reading next record from wallet database");
+            ret = false;
+            break;
+        }
+        std::string key_str = HexStr(ss_key);
+        std::string value_str = HexStr(ss_value);
+        line = strprintf("%s,%s\n", key_str, value_str);
+        dump_file.write(line.data(), line.size());
+        hasher << Span{line};
+    }
+
+    cursor.reset();
+    batch.reset();
+
+    // [.. handle dump file stuff ..]
+
+    return ret;
+}
+```
+
+----------------
+
+In `src/wallet/migrate.cpp` & `src/wallet/migrate.h`:
+
+`BerkeleyRO*` exist so that we can read keys and values from a legacy bdb wallet
+when migrating so that we can drop the bdb wallet entirely in the future, the
+same as in `db.h` applies here, all the ekys and values read in
+`BerkeleyROBatch::ReadKey()`, `HasKey` and `BerkeleyROCursor::Next()` are
+crypted as in their non-RO counterparts found above.
+
+---------------------
+
+In `src/wallet/rpc/backup.cpp`:
+
+`DataStream` is used to serialize the transaction inclusion proof argument to
+the `importprunedfunds()` rpc which lets pruned nodes import funds without
+rescanning if they have inclusion proofs similar to above in
+`src/rpc/txoutproof.cpp`.
+
+```cpp
+RPCHelpMan importprunedfunds()
+{
+    std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
+    if (!pwallet) return UniValue::VNULL;
+
+    CMutableTransaction tx;
+    if (!DecodeHexTx(tx, request.params[0].get_str())) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed. Make sure the tx has at least one input.");
+    }
+    uint256 hashTx = tx.GetHash();
+
+    DataStream ssMB{ParseHexV(request.params[1], "proof")};
+    CMerkleBlock merkleBlock;
+    ssMB >> merkleBlock;
+
+    // [.. validate merkle block ..]
+
+    // [.. add transactions to wallet.. ]
+}
+```
+
+------------------------
+
+
+In `src/wallet/rpc/txoutproof.cpp`:
+
+In `static Univalue FinishTransaction` used by the rpc's `send()` and
+`sendall()`, DataStream is used to serialize the completed psbt and print it if
+either was called with `psbt=true`.
+
+In `bumpfee_helper` when invoked as the `psbtbumpfee` rpc, a DataStream is used
+to serialize the unsigned psbt of the new transaction that gets returned.
+
+In `walletprocesspsbt()` `DataStream is used to serialize the PSBT, and if the
+transaction is complete to serialize the final transaction:
+
+```cpp
+RPCHelpMan walletprocesspsbt()
+{
+    // [...prepare psbtx...]
+
+    UniValue result(UniValue::VOBJ);
+    DataStream ssTx{};
+    ssTx << psbtx;
+    result.pushKV("psbt", EncodeBase64(ssTx.str()));
+    result.pushKV("complete", complete);
+    if (complete) {
+        CMutableTransaction mtx;
+        // Returns true if complete, which we already think it is.
+        CHECK_NONFATAL(FinalizeAndExtractPSBT(psbtx, mtx));
+        DataStream ssTx_final;
+        ssTx_final << TX_WITH_WITNESS(mtx);
+        result.pushKV("hex", HexStr(ssTx_final));
+    }
+
+    return result;
+}
+```
+
+in the `walletcreatefundedpsbt` rpc, it contains the serialized psbt
+
+--------------------
+
+In `src/wallet/salvage.cpp`:
+
+`DataStream` is used during `RecoverDatabaseFile()` when trying to recover key
+and value data from a db, nothing gets decrypted here:
+
+```cpp
+    for (KeyValPair& row : salvagedData)
+    {
+        /* Filter for only private key type KV pairs to be added to the salvaged wallet */
+        DataStream ssKey{row.first};
+        DataStream ssValue(row.second);
+        std::string strType, strErr;
+
+        // We only care about KEY, MASTER_KEY, CRYPTED_KEY, and HDCHAIN types
+        ssKey >> strType;
+        bool fReadOK = false;
+        // [ The below just load the crypted form of the key, no decryption. ]
+        if (strType == DBKeys::KEY) {
+            fReadOK = LoadKey(&dummyWallet, ssKey, ssValue, strErr);
+        } else if (strType == DBKeys::CRYPTED_KEY) {
+            fReadOK = LoadCryptedKey(&dummyWallet, ssKey, ssValue, strErr);
+        } else if (strType == DBKeys::MASTER_KEY) {
+            fReadOK = LoadEncryptionKey(&dummyWallet, ssKey, ssValue, strErr);
+        } else if (strType == DBKeys::HDCHAIN) {
+            fReadOK = LoadHDChain(&dummyWallet, ssValue, strErr);
+        } else {
+            continue;
+        }
+```
+
+--------
+
+In `src/wallet/sqlite.cpp` & `src/wallet/sqlite.h`:
+
+`SQLiteBatch::ReadKey`, WriteKey, etc. and `SQLiteCursor::next` mirror berkeley
+and berkeley RO batches above, again: all reading crypted data from disk, data
+gets decrypted somewhere else, once it's far away from it's humble `DataStream`
+beginnings.
+
+---------
+
+In `src/wallet/wallet.cpp`:
+
+Used in `MigrateToSQLite()` when iterating through BDB with the bdb cursor:
+
+```cpp
+bool CWallet::MigrateToSQLite(bilingual_str& error)
+{
+    while (true) {
+        DataStream ss_key{};
+        DataStream ss_value{};
+        status = cursor->Next(ss_key, ss_value);
+        if (status != DatabaseCursor::Status::MORE) {
+            break;
+        }
+        SerializeData key(ss_key.begin(), ss_key.end());
+        SerializeData value(ss_value.begin(), ss_value.end());
+        records.emplace_back(key, value);
+    }
+    cursor.reset();
+    batch.reset();
+
+    // [....insert the records in to the new sqlite db...] 
+}
+```
+
+---------------------
+
+In `src/wallet/walletdb.cpp`:
+
+Most of the arguments above about encrypted data on disk hold true here...
+
+```cpp
+bool WalletBatch::IsEncrypted()
+{
+    DataStream prefix;
+    prefix << DBKeys::MASTER_KEY;
+    if (auto cursor = m_batch->GetNewPrefixCursor(prefix)) {
+        DataStream k, v;
+        if (cursor->Next(k, v) == DatabaseCursor::Status::MORE) return true;
+    }
+    return false;
+}
+```
+
+master encryption keys are stored in the db (in crypted form!), this is just
+serializing the master key prefix and then searching for such an entry, no
+secrets in the prefix!
+
+`LoadKey` and `LoadCryptedKey` don't do any decryption of the keys. LoadKey just
+grabs all the keys that have the unencrypted key prefix as-is, and
+loadcryptedkey loads keys with the crypted key prefix as-is. The story is almost
+identical with `LoadHDChain` and `LoadEncryptionKey` and the same with the rest
+of the `LoadRecords()`, `LoadLegacyWalletRecoreds()`, and
+`LoadDescriptorWalletRecords()` circus.
+
+I definitely got tired and slacked a little while reviewing `walletdb.cpp` but
+I'm pretty confident about this.
+
+-------------------------
+
+In `src/zmq/zmpqpublishnotifier.cpp`:
+
+```cpp
+bool CZMQPublishRawTransactionNotifier::NotifyTransaction(const CTransaction &transaction)
+{
+    uint256 hash = transaction.GetHash();
+    LogDebug(BCLog::ZMQ, "Publish rawtx %s to %s\n", hash.GetHex(), this->address);
+    DataStream ss;
+    ss << TX_WITH_WITNESS(transaction);
+    return SendZmqMessage(MSG_RAWTX, &(*ss.begin()), ss.size());
+}`
+```
+
+Used to serialize the raw transaction that we are sending a ZeroMQ notification
+about.
