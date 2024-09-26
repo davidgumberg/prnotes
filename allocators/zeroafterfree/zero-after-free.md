@@ -72,13 +72,13 @@ I have a feeling that it's not just the fact that we're memsetting everything to
 trick we do to prevent compilers from optimizing out the `memset` call is also
 preventing other optimizations on the `DataStream`s.
 
-# Appendices
+## Appendices
 
 <details>
 
 <summary>
 
-## Benchmarking
+### Benchmarking
 
 </summary>
 
@@ -96,7 +96,7 @@ Average branch time (hh:mm:ss): 35:58:40 (129520s)
 
 ~25% reduction in IBD time on a raspberry Pi 5 with a DB cache of 2GB.
 
-# Master run 1
+#### Master run 1
 Wall clock time (hh:mm:ss): 49:38:31 (178711s)
 
 ```console
@@ -114,7 +114,7 @@ Bitcoin Core version v27.99.0-6d546336e800 (release build)
   - Connect postprocess: 273.39s (0.52ms/blk)
 ```
 
-# Master run 2
+#### Master run 2
 Wall clock time (hh:mm:ss): 46:55:58 (168958s)
 
 ```
@@ -132,7 +132,7 @@ Bitcoin Core version v27.99.0-6d546336e800 (release build)
   - Connect postprocess: 267.68s (0.56ms/blk)
 ```
 
-# Branch run 1
+#### Branch run 1
 Wall clock time (hh:mm:ss): 34:28:56 (124136s)
 
 ```
@@ -150,7 +150,7 @@ Bitcoin Core version v27.99.0-a0dddf8b4092 (release build)
   - Connect postprocess: 259.89s (0.47ms/blk)
 ```
 
-# Branch run 2
+#### Branch run 2
 Wall clock time (hh:mm:ss): 37:28:24 (134904s)
 
 ```
@@ -173,7 +173,7 @@ Bitcoin Core version v27.99.0-a0dddf8b4092 (release build)
 
 <summary>
 
-## Historical background
+### Historical background
 
 </summary>
 
@@ -270,12 +270,10 @@ https://github.com/bitcoin/bitcoin/commit/671c724716abdd69b9d253a01f8fec67a37ab7
 
 <summary>
 
-## All uses of `DataStream` and `SerializeData`
-(Warning when opening: very long)
+### All uses of DataStream and SerializeData
+( ⚠️ when opening: very long)
 
 </summary>
-
-# All uses of `DataStream` and `SerializeData`
 
 I performed this review on commit
 [39219fe145e5e6e6f079b591e3f4b5fea8e71804](https://github.com/bitcoin/bitcoin/commit/39219fe145e5e6e6f079b591e3f4b5fea8e71804)
@@ -287,7 +285,7 @@ should be mlocked to prevent paging to swap.
 I've taken liberties to editorialize some of the codeblocks below for
 legibility, and all comments that have `[]` are my own.
 
-# `DataStream`
+##### `DataStream`
 
 In `src/addrdb.cpp`+`src/addrdb.h`:
 
@@ -1105,12 +1103,12 @@ static RPCHelpMan verifytxoutproof()
 
 -------
 
-## Wallet
+#### Wallet
 
 If wallet is unencrypted on disk, I feel there is no reason for us to be delicate about
 how it is handled in memory.
 
-### How wallet disk encryption happens
+##### How wallet disk encryption happens
 
 My understanding of the way that wallet encryption on disk works is that keys
 and values are written and read by the wallet in crypted form, and they are
@@ -1507,7 +1505,7 @@ bool CZMQPublishRawTransactionNotifier::NotifyTransaction(const CTransaction &tr
 Used to serialize the raw transaction that we are sending a ZeroMQ notification
 about.
 
-# Not done: `SerializeData`
+#### Not done yet, `SerializeData`
 
 Let's also look at every instance of `SerializeData` being used, since this is a
 vector of bytes, with the `zero_after_free_allocator`:
