@@ -70,7 +70,8 @@ so I hope someone with more knowledge of memory vulnerabilities can assist.
 I have a feeling that it's not just the fact that we're memsetting everything to 0 in
 `memory_cleanse` that is causing the performance issue, but the fact that the
 trick we do to prevent compilers from optimizing out the `memset` call is also
-preventing other optimizations on the `DataStream`s.
+preventing other optimizations on the `DataStream`'s, but I have yet to test
+this.
 
 ## Appendices
 
