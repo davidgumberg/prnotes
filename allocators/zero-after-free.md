@@ -42,18 +42,18 @@ that dropping `mlock()` was a good idea, but that the original behavior of
 zeroing-after-freeing (should it be zeroing-*before*-freeing?) `CDataStream`
 should be restored as a mitigation for buffer overflows:
 
-    I love the performance improvement, but I still don't like the elimination of zero-after-free. Security in depth is important.
-
-    Here's the danger:
-
-    Attacker finds a remotely-exploitable buffer overrun somewhere in the networking code that crashes the process.
-    They turn the crash into a full remote exploit by sending carefully constructed packets before the crash packet, to initialize used-but-then-freed memory to a known state.
-
-    Unlikely? Sure.
-
-    Is it ugly to define a zero_after_free_allocator for CDataStream? Sure. (simplest implementation: copy secure_allocator, remove the mlock/munlock calls).
-
-    But given that CDataStream is the primary interface between bitcoin and the network, I think being extra paranoid here is a very good idea.
+> I love the performance improvement, but I still don't like the elimination of zero-after-free. Security in depth is important.
+>
+> Here's the danger:
+>
+> Attacker finds a remotely-exploitable buffer overrun somewhere in the networking code that crashes the process.
+> They turn the crash into a full remote exploit by sending carefully constructed packets before the crash packet, to initialize used-but-then-freed memory to a known state.
+>
+> Unlikely? Sure.
+>
+> Is it ugly to define a zero_after_free_allocator for CDataStream? Sure. (simplest implementation: copy secure_allocator, remove the mlock/munlock calls).
+>
+> But given that CDataStream is the primary interface between bitcoin and the network, I think being extra paranoid here is a very good idea.
 
 Another reviewer benchmarked `CDataStream` with an allocator that zeroed
 memory using `memset` without `mlock`ing it and found that performance was almost identical to
