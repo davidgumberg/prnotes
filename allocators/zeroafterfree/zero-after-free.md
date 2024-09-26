@@ -65,25 +65,23 @@ I'm not an expert in this topic and I had a hard time finding any writing
 anywhere that discusses this particular mitigation strategy of zeroing memory,
 so I hope someone with more knowledge of memory vulnerabilities can assist.
 
+----------
 
 #### Other notes
 
-I opted to leave `SerializeData` as `std::vector<std::byte>` instead of deleting
+- I opted to leave `SerializeData` as `std::vector<std::byte>` instead of deleting
 it and refactoring in the spots where it's used in the wallet to keep the PR
 small, if others think it would be better to delete it I would be happy to do
 it.
 
------
-
-I have a feeling that it's not just the fact that we're memsetting everything to 0 in
-`memory_cleanse` that is causing the performance issue, but the fact that the
+- I have a feeling that it's not just that we're memsetting everything to 0 in
+`memory_cleanse` that is causing the performance issue, but the
 trick we do to prevent compilers from optimizing out the `memset` call is also
 preventing other optimizations on the `DataStream`'s, but I have yet to test
 this.
 
-
-
 ----------
+
 ## Appendices
 
 <details>
