@@ -177,8 +177,6 @@ Bitcoin Core version v27.99.0-a0dddf8b4092 (release build)
 
 </summary>
 
-<details>
-
 At some point prior to the oldest git commit for the repo, an allocator
 `secure_allocator` was
 [added](https://github.com/bitcoin/bitcoin/blob/0a61b0df1224a5470bcddab302bc199ca5a9e356/serialize.h#L675-L702)
