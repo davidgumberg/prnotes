@@ -296,7 +296,7 @@ In `src/addrdb.cpp`+`src/addrdb.h`:
 void ReadFromStream(AddrMan& addr, DataStream& ssPeers);
 ```
 
-😺 Only used by tests.
+Only used by tests.
 
 -----
 
