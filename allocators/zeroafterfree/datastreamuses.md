@@ -1,6 +1,16 @@
+# All uses of `DataStream` and `SerializeData`
+
+I performed this review on commit
+[39219fe145e5e6e6f079b591e3f4b5fea8e71804](https://github.com/bitcoin/bitcoin/commit/39219fe145e5e6e6f079b591e3f4b5fea8e71804)
+
 I look, briefly, at every single use of `DataStream` outside of test code, to
-see whether or not it contains information that should be zeroed out, or should
-be mlocked to prevent paging to swap:
+see whether or not it contains secret information that should be zeroed out, or
+should be mlocked to prevent paging to swap.
+
+I've taken liberties to editorialize some of the codeblocks below for
+legibility, and all comments that have `[]` are my own.
+
+# `DataStream`
 
 In `src/addrdb.cpp`+`src/addrdb.h`:
 
@@ -867,9 +877,11 @@ from the existing db when rewriting the database.
 
 `BerkeleyDatabase::Rewrite()` is used when encrypting a wallet for the first
 time, since, according to comments "BDB might keep bits of the unencrypted
-private key in slack space in the database file." So there might be some concern
-that the unencrypted wallet db material will stick around in memory after the
-user has encrypted the wallet.
+private key in slack space in the database file." or when we detect a wallet
+that was encrypted by version <0.5.0 and >0.4.0 of bitcoin, presumably because
+of some horrible bug in those versions. (PR [#635](https://github.com/bitcoin/bitcoin/pull/635)
+
+But at this point, the wallet has already been encrypted, and we won't be loading anything from slack space when rewriting the db, so no problems.
 
 `BerkeleyCursor::Next()` is used when cursoring through the BDB, and stores the
 retrieved Key and Value in DataStream's, if the wallet is encrypted these will
@@ -1217,3 +1229,54 @@ bool CZMQPublishRawTransactionNotifier::NotifyTransaction(const CTransaction &tr
 
 Used to serialize the raw transaction that we are sending a ZeroMQ notification
 about.
+
+# Not done: `SerializeData`
+
+Let's also look at every instance of `SerializeData` being used, since this is a
+vector of bytes, with the `zero_after_free_allocator`:
+
+-----------
+
+In `src/wallet/migrate.cpp`:
+
+Used in the `BerkeleyROBatch::*` family of `ReadKey()`, `HasKey()` to represent
+the vector portion of the same `DataStream`'s I used and described above that
+have just crypted key data, or unencrypted data *if* the wallet itself is
+unencrypted, e.g.:
+
+```cpp
+
+bool BerkeleyROBatch::ReadKey(DataStream&& key, DataStream& value)
+{
+    SerializeData key_data{key.begin(), key.end()};
+    const auto it{m_database.m_records.find(key_data)};
+    if (it == m_database.m_records.end()) {
+        return false;
+    }
+    auto val = it->second;
+    value.clear();
+    value.write(Span(val));
+    return true;
+}
+```
+
+-----------
+
+In `src/wallet/wallet.cpp`:
+
+Used in `MigrateToSQLite()` as discussed above to store the `DataStream` data
+described above:
+
+```cpp
+while (true) {
+    DataStream ss_key{};
+    DataStream ss_value{};
+    status = cursor->Next(ss_key, ss_value);
+    if (status != DatabaseCursor::Status::MORE) {
+        break;
+    }
+    SerializeData key(ss_key.begin(), ss_key.end());
+    SerializeData value(ss_value.begin(), ss_value.end());
+    records.emplace_back(key, value);
+}
+```
