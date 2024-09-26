@@ -16,3 +16,6 @@
   - Another contributor has an open PR for this:
     [bitcoin/bitcoin#30643](https://github.com/bitcoin/bitcoin/pull/30643)
 - Avoid an unnecessary copy with struct CoinsEntry
+- Use secure allocator instead of memcleanse for cleaning up fallback windows
+  seed generation (randomenv.cpp):
+  https://bitcoin-irc.chaincode.com/bitcoin-core-dev/2021-10-15#723906
