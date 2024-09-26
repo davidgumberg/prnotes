@@ -65,7 +65,7 @@ I'm not an expert in this topic and I had a hard time finding any writing
 anywhere that discusses this particular mitigation strategy of zeroing memory,
 so I hope someone with more knowledge of memory vulnerabilities can assist.
 
-### Other notes
+------
 
 I have a feeling that it's not just the fact that we're memsetting everything to 0 in
 `memory_cleanse` that is causing the performance issue, but the fact that the
@@ -79,7 +79,7 @@ this.
 
 <summary>
 
-### Benchmarking
+### Benchmarks
 
 </summary>
 
