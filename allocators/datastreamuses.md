@@ -109,7 +109,7 @@ bool ExternalSigner::SignTransaction(PartiallySignedTransaction& psbtx, std::str
     ssTx << psbtx;
 ```
 
-I don't think this is secret, but I don't know enough about PSBT's.
+I don't think this is a secret, but I don't know enough about PSBT's to be sure.
 
 -------
 
