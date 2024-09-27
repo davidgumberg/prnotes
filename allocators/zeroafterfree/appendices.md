@@ -1,16 +1,176 @@
-# All uses of `DataStream` and `SerializeData`
+## Appendix
 
-I performed this review on commit
-[39219fe145e5e6e6f079b591e3f4b5fea8e71804](https://github.com/bitcoin/bitcoin/commit/39219fe145e5e6e6f079b591e3f4b5fea8e71804)
+<details>
 
-I look, briefly, at every single use of `DataStream` outside of test code, to
-see whether or not it contains secret information that should be zeroed out, or
-should be mlocked to prevent paging to swap.
+<summary>
 
-I've taken liberties to editorialize some of the codeblocks below for
-legibility, and all comments that have `[]` are my own.
+### Benchmarks
 
-# `DataStream`
+</summary>
+
+Command being timed:
+```bash
+./src/bitcoind -daemon=0 -connect=amd-ryzen-7900x-node:8333 -stopatheight=815000 -port=8444 -rpcport=8445 -dbcache=2048 -prune=550 -debug=bench -debug=blockstorage -debug=coindb -debug=mempool -debug=prune"
+```
+
+I applied my branch on
+[6d546336e800](https://github.com/bitcoin/bitcoin/commit/6d546336e800), which is
+"master" in the data below.
+
+Average master time (hh:mm:ss): 48:17:15 (173835s)
+Average branch time (hh:mm:ss): 35:58:40 (129520s)
+
+~25% reduction in IBD time on a raspberry Pi 5 with a DB cache of 2GB.
+
+#### Master run 1
+Wall clock time (hh:mm:ss): 49:38:31 (178711s)
+
+```console
+Bitcoin Core version v27.99.0-6d546336e800 (release build)
+- Connect block: 158290.53s (620.94ms/blk)
+    - Sanity checks: 10.89s (0.01ms/blk)
+    - Fork checks: 151.82s (0.02ms/blk)
+    - Verify 7077 txins: 135057.68s (165.71ms/blk)
+      - Connect 1760 transactions: 134786.36s (165.38ms/blk)
+    - Write undo data: 2681.34s (7.38ms/blk)
+    - Index writing: 52.76s (0.03ms/blk)
+  - Connect total: 138100.75s (611.27ms/blk)
+  - Flush: 3933.29s (8.97ms/blk)
+  - Writing chainstate: 15814.36s (0.14ms/blk)
+  - Connect postprocess: 273.39s (0.52ms/blk)
+```
+
+#### Master run 2
+Wall clock time (hh:mm:ss): 46:55:58 (168958s)
+
+```
+Bitcoin Core version v27.99.0-6d546336e800 (release build)
+- Connect block: 145449.95s (940.78ms/blk)
+    - Sanity checks: 10.69s (0.01ms/blk)
+    - Fork checks: 155.81s (0.02ms/blk)
+    - Verify 7077 txins: 115935.55s (142.25ms/blk)
+      - Connect 1760 transactions: 115481.15s (141.69ms/blk)
+    - Write undo data: 2561.36s (9.05ms/blk)
+    - Index writing: 73.63s (0.04ms/blk)
+  - Connect total: 118877.56s (929.93ms/blk)
+  - Flush: 3864.34s (10.11ms/blk)
+  - Writing chainstate: 22294.82s (0.14ms/blk)
+  - Connect postprocess: 267.68s (0.56ms/blk)
+```
+
+#### Branch run 1
+Wall clock time (hh:mm:ss): 34:28:56 (124136s)
+
+```
+Bitcoin Core version v27.99.0-a0dddf8b4092 (release build)
+- Connect block: 107134.59s (1017.01ms/blk)
+    - Sanity checks: 11.01s (0.01ms/blk)
+    - Fork checks: 150.93s (0.03ms/blk)
+    - Verify 7077 txins: 87446.53s (107.30ms/blk)
+      - Connect 1760 transactions: 87329.99s (107.15ms/blk)
+    - Write undo data: 2495.47s (7.36ms/blk)
+    - Index writing: 37.95s (0.04ms/blk)
+  - Connect total: 90318.60s (1006.42ms/blk)
+  - Flush: 3917.28s (9.92ms/blk)
+  - Writing chainstate: 12560.43s (0.15ms/blk)
+  - Connect postprocess: 259.89s (0.47ms/blk)
+```
+
+#### Branch run 2
+Wall clock time (hh:mm:ss): 37:28:24 (134904s)
+
+```
+Bitcoin Core version v27.99.0-a0dddf8b4092 (release build)
+- Connect block: 117991.55s (144.77ms/blk)
+  - Connect total: 101298.20s (124.29ms/blk)
+    - Sanity checks: 11.17s (0.01ms/blk)
+    - Fork checks: 151.24s (0.19ms/blk)
+    - Verify 7077 txins: 98446.38s (120.79ms/blk)
+      - Connect 1760 transactions: 98339.79s (120.66ms/blk)
+    - Write undo data: 2484.75s (3.05ms/blk)
+    - Index writing: 36.62s (0.04ms/blk)
+  - Flush: 3892.28s (4.78ms/blk)
+  - Writing chainstate: 12446.33s (15.27ms/blk)
+  - Connect postprocess: 259.11s (0.32ms/blk)
+```
+</details>
+
+<details>
+
+<summary>
+
+### Historical background
+
+</summary>
+
+At some point prior to the oldest git commit for the repo, an allocator `secure_allocator` was [added](https://github.com/bitcoin/bitcoin/blob/0a61b0df1224a5470bcddab302bc199ca5a9e356/serialize.h#L675-L702) that zeroes out memory on deallocation with `memset()`, and was [used](https://github.com/bitcoin/bitcoin/blob/0a61b0df1224a5470bcddab302bc199ca5a9e356/serialize.h#L711-L714) as the allocator for the vector `vch` in `CDataStream` (now `DataStream`).
+
+In July 2011, PR [#352](https://github.com/bitcoin/bitcoin/pull/352) adding support for encrypted wallets `secure_allocator` was [modified](https://github.com/bitcoin/bitcoin/pull/352/commits/c1aacf0be347b10a6ab9bbce841e8127412bce41) to also `mlock()` data on allocation to prevent the wallet passphrase or other secrets from being paged to swap space (written to disk).
+
+In January 2012, findings were shared (https://bitcointalk.org/index.php?topic=56491.0) that [#352](https://github.com/bitcoin/bitcoin/pull/352) modifying `CDataStream`'s allocator slowed down IBD substantially[^1], since `CDataStream` was used in many places that did not need the guarantees of `mlock()`, and since every call to `mlock()` results in a flush of the TLB (a cache that maps virtual memory to physical memory).
+
+PR [#740](https://github.com/bitcoin/bitcoin/pull/740) was opened to fix this, initially[^2] by removing the custom allocator `secure_allocator` from `CDataStream`'s `vector_type`:
+
+```diff
+ class CDataStream
+ {
+ protected:
+-    typedef std::vector<char, secure_allocator<char> > vector_type;
++    typedef std::vector<char> vector_type;
+     vector_type vch;
+```
+
+A reviewer of [#740](https://github.com/bitcoin/bitcoin/pull/740) [suggested](https://github.com/bitcoin/bitcoin/pull/740#issuecomment-3356239) that dropping `mlock()` was a good idea, but that the original behavior of zeroing-after-freeing (should it be zeroing-*before*-freeing?) `CDataStream` should be restored as a mitigation for buffer overflows:
+
+> I love the performance improvement, but I still don't like the elimination of zero-after-free. Security in depth is important.
+>
+> Here's the danger:
+>
+> Attacker finds a remotely-exploitable buffer overrun somewhere in the networking code that crashes the process.
+> They turn the crash into a full remote exploit by sending carefully constructed packets before the crash packet, to initialize used-but-then-freed memory to a known state.
+>
+> Unlikely? Sure.
+>
+> Is it ugly to define a zero_after_free_allocator for CDataStream? Sure. (simplest implementation: copy secure_allocator, remove the mlock/munlock calls).
+>
+> But given that CDataStream is the primary interface between bitcoin and the network, I think being extra paranoid here is a very good idea.
+
+Another reviewer benchmarked `CDataStream` with an allocator that zeroed memory using `memset` without `mlock`ing it and found that performance was almost identical to the default allocator, while both were substantially faster than the `mlock`ing variant of `CDataStream`. (https://web.archive.org/web/20130622160044/https://people.xiph.org/~greg/bitcoin-sync.png).
+
+Based on the benchmark, and the potential security benefit, the `zero_after_free` allocator was created and used as `CDataStream`'s allocator.
+
+In November 2012, PR [#1992](https://github.com/bitcoin/bitcoin/pull/1992) was opened to address the fact that in many cases `memset()` calls are optimized away by compilers as part of a family of compiler optimizations called [dead store elimination](https://www.usenix.org/conference/usenixsecurity17/technical-sessions/presentation/yang) by replacing the `memset` call with openssl's `OPENSSL_cleanse` which is meant to solve this problem. Given that all of the data being zero'ed out in the deallocator is also having it's only pointer destroyed, these memset calls were candidates for being optimized.
+
+I suspect that the reason no performance regression was found in the benchmarking of [#740](https://github.com/bitcoin/bitcoin/pull/740) which introduced the `zero_after_free` allocator is that the `memset` calls were being optimized out.
+
+I am not the first to suggest that this is a performance issue:
+
+https://bitcoin-irc.chaincode.com/bitcoin-core-dev/2015-11-06#1446837840-1446854100;
+
+https://bitcoin-irc.chaincode.com/bitcoin-core-dev/2016-11-23#1479883620-1479882900;
+
+Or to write a patch changing it:
+
+https://github.com/bitcoin/bitcoin/commit/671c724716abdd69b9d253a01f8fec67a37ab7d7
+
+</details>
+
+<details>
+
+<summary>
+
+### All uses of DataStream and SerializeData
+( ⚠️ when opening: very long)
+
+</summary>
+
+I performed this review on commit [39219fe145e5e6e6f079b591e3f4b5fea8e71804](https://github.com/bitcoin/bitcoin/commit/39219fe145e5e6e6f079b591e3f4b5fea8e71804)
+
+I look, briefly, at every single use of `DataStream` outside of test code, to see whether or not it contains secret information that should be zeroed out, or should be mlocked to prevent paging to swap.
+
+I've taken liberties to editorialize some of the codeblocks below for legibility, and all comments that have `[]` are my own.
+
+##### `DataStream`
 
 In `src/addrdb.cpp`+`src/addrdb.h`:
 
@@ -23,14 +183,9 @@ Only used by tests.
 
 -----
 
-In `src/addrman.cpp` `Addrman::Serialize(DataStream&)` &
-`Unserialize(DataStream&)`, are explicitly instantiated, these are used in
-`SerializeFileDB` and `DeserializeDB` which are used to serialize
-(`DumpPeerAddresses`) addrman to disk, and to deserialize addrman from disk
-(`LoadAddrman`).
+In `src/addrman.cpp` `Addrman::Serialize(DataStream&)` & `Unserialize(DataStream&)`, are explicitly instantiated, these are used in `SerializeFileDB` and `DeserializeDB` which are used to serialize (`DumpPeerAddresses`) addrman to disk, and to deserialize addrman from disk (`LoadAddrman`).
 
-The most valuable secret seems to be addrman's `nKey` used to determine the
-address buckets randomly.
+The most valuable secret seems to be addrman's `nKey` used to determine the address buckets randomly.
 
 -------
 
@@ -49,19 +204,15 @@ void CBlockHeaderAndShortTxIDs::FillShortTxIDSelector() const {
 }
 ```
 
-Here we are just using the DataStream to be able to Serialize the block header
-and nonce into a string of bytes that get hashed to make short id k0 and k1 for
-[BIP 152](https://github.com/bitcoin/bips/blob/master/bip-0152.mediawiki#short-transaction-ids).
+Here we are just using the DataStream to be able to Serialize the block header and nonce into a string of bytes that get hashed to make short id k0 and k1 for [BIP 152](https://github.com/bitcoin/bips/blob/master/bip-0152.mediawiki#short-transaction-ids).
 
-This gets invoked when we construct a `CBlockHeaderandShortTxIDs` for an INV of
-type `MSG_CMPCT_BLOCK` in `PeerManagerImpl::SendMessage()`.
+This gets invoked when we construct a `CBlockHeaderandShortTxIDs` for an INV of type `MSG_CMPCT_BLOCK` in `PeerManagerImpl::SendMessage()`.
 
 -------
 
 In `src/common/blooms.cpp`:
 
-DataStream is used to deserialize outpoints into our bloom filter, these are not
-secrets in any way:
+DataStream is used to deserialize outpoints into our bloom filter, these are not secrets in any way:
 
 ```cpp
 void CBloomFilter::insert(const COutPoint& outpoint)
@@ -76,15 +227,11 @@ void CBloomFilter::insert(const COutPoint& outpoint)
 
 In `src/core_read.cpp`:
 
-DataStream is used in `DecodeTx` for serialization/deserialization of the
-transaction data, used afaict only in RPC's for deserializing user arguments
-into `CMutableTransaction`'s.
+DataStream is used in `DecodeTx` for serialization/deserialization of the transaction data, used afaict only in RPC's for deserializing user arguments into `CMutableTransaction`'s.
 
-It's used in `DecodeHexBlockHeader()`which deserializes a block header argument
-into a `CBlockHeader` for the `submitheader` rpc.
+It's used in `DecodeHexBlockHeader()`which deserializes a block header argument into a `CBlockHeader` for the `submitheader` rpc.
 
-Similar for `DecodeHexBlk()` used by the `getblocktemplate` and `submitblock`
-rpc's.
+Similar for `DecodeHexBlk()` used by the `getblocktemplate` and `submitblock` rpc's.
 
 ----
 
@@ -99,13 +246,11 @@ void CBloomFilter::insert(const COutPoint& outpoint)
 }
 ```
 
-`EncodeHexTx` is only used in RPC's, and transaction data does not contain
-secrets.
+`EncodeHexTx` is only used in RPC's, and transaction data does not contain secrets.
 
 ------
 
-In `dbwrapper.h` and `dbwrapper.cpp` it is used exclusively to serialize and
-deserialize coinsdb keys and values, none of which is secret.
+In `dbwrapper.h` and `dbwrapper.cpp` it is used exclusively to serialize and deserialize coinsdb keys and values, none of which is secret.
 
 --------
 
@@ -123,9 +268,7 @@ I don't think this is a secret, but I don't know enough about PSBT's to be sure.
 
 -------
 
-There is some scaffolding for being able to transmit serializable stuff over the
-IPC wire in `src/capnp/common-types.h`, I assume this depends on how it's used,
-nothing essentially secret.
+There is some scaffolding for being able to transmit serializable stuff over the IPC wire in `src/capnp/common-types.h`, I assume this depends on how it's used, nothing essentially secret.
 
 --------
 
@@ -140,16 +283,13 @@ void ApplyCoinHash(MuHash3072& muhash, const COutPoint& outpoint, const Coin& co
 }
 ```
 
-Here it's used for serializing oupoints and coins for creating the AssumeUTXO
-assumed utxo set hash, nothing secret.
+Here it's used for serializing oupoints and coins for creating the AssumeUTXO assumed utxo set hash, nothing secret.
 
 -------
 
 In `src/net.cpp`:
 
-In `ConvertSeeds()` serialized seeds get converted into usable address objects, we
-initialize a DataStream with the input seeds that we are going to try connecting
-to during node bootstrapping.
+In `ConvertSeeds()` serialized seeds get converted into usable address objects, we initialize a DataStream with the input seeds that we are going to try connecting to during node bootstrapping.
 
 ```cpp
 //! Convert the serialized seeds into usable address objects.
@@ -175,8 +315,7 @@ static std::vector<CAddress> ConvertSeeds(const std::vector<uint8_t> &vSeedsIn)
 }
 ```
 
-It is also used for creating an empty `CNetMessage` which has a `DataStream`
-member in `CNetMessage V2Transport::GetReceivedMessage()`:
+It is also used for creating an empty `CNetMessage` which has a `DataStream` member in `CNetMessage V2Transport::GetReceivedMessage()`:
 
 ```cpp
 //! Convert the serialized seeds into usable address objects.
@@ -206,8 +345,7 @@ static std::vector<CAddress> ConvertSeeds(const std::vector<uint8_t> &vSeedsIn)
 
 In `net.h`
 
-`CNetMessage` the universal p2p message container used a `DataStream` to store
-received message data.
+`CNetMessage` the universal p2p message container used a `DataStream` to store received message data.
 
 ```cpp
 /** Transport protocol agnostic message container.
@@ -235,9 +373,7 @@ public:
 };
 ```
 
-It's also used for the lower level handling of messages, including partially
-received header buffers and received socket data in `V1Transport` as in v2
-transport above in `net.cpp`.
+It's also used for the lower level handling of messages, including partially received header buffers and received socket data in `V1Transport` as in v2 transport above in `net.cpp`.
 
 ```cpp
 /** Transport protocol agnostic message container.
@@ -395,17 +531,14 @@ bool DecodeRawPSBT(PartiallySignedTransaction& psbt, Span<const std::byte> tx_da
 }
 ```
 
-It is used for deserializing hex data into a `PartiallySignedTransaction`
-object.
+It is used for deserializing hex data into a `PartiallySignedTransaction` object.
 
 --------
 
 
 In `src/qt/psbtoperationsdialog.cpp`:
 
-Bitcoin Qt interface for 
-
-Copying psbt to clipboard:
+Bitcoin Qt interface for Copying psbt to clipboard:
 
 ```cpp
 void PSBTOperationsDialog::copyToClipboard() {
@@ -474,13 +607,7 @@ void RecentRequestsTableModel::addNewRequest(const SendCoinsRecipient &recipient
 }
 ```
 
-I am not very familiar with the GUI but as far as I can tell the
-`RecentRequestsTable` stores and displays receive addresses / payment requests
-that you've generated. Here the `SendCoinsRecipient` of payment request consists
-of an address, a label, an amount, and a memo/message. We serialize the
-recipient and other data about the request, an ID, and a date/time for the
-request, and then pass the string into a function which will store it in the
-`RecentRequestsTable`.
+I am not very familiar with the GUI but as far as I can tell the `RecentRequestsTable` stores and displays receive addresses / payment requests that you've generated. Here the `SendCoinsRecipient` of payment request consists of an address, a label, an amount, and a memo/message. We serialize the recipient and other data about the request, an ID, and a date/time for the request, and then pass the string into a function which will store it in the `RecentRequestsTable`.
 
 --------
 
@@ -537,8 +664,7 @@ void SendCoinsDialog::presentPSBT(PartiallySignedTransaction& psbtx)
 }
 ```
 
-Here it's used to serialize the PSBT in order to display it to the user during
-the process of sending in the GUI.
+Here it's used to serialize the PSBT in order to display it to the user during the process of sending in the GUI.
 
 
 ---------
@@ -591,12 +717,7 @@ void WalletModel::sendCoins(WalletModelTransaction& transaction)
 
 In `src/rest.cpp`:
 
-`DataStream` is used by Bitcoin Core's REST interface to serialize responses to
-requests for headers in `rest_headers()`, blocks in `rest_block()`,
-blockfilterheaders in `rest_filter_header()` blockfilters in
-`rest_block_filter()`, tx's in `rest_tx()` utxo's in `rest_getutxos()` and
-blockhashes in `rest_blockhash_by_height()`.
-
+`DataStream` is used by Bitcoin Core's REST interface to serialize responses to requests for headers in `rest_headers()`, blocks in `rest_block()`, blockfilterheaders in `rest_filter_header()` blockfilters in `rest_block_filter()`, tx's in `rest_tx()` utxo's in `rest_getutxos()` and blockhashes in `rest_blockhash_by_height()`.
 
 ---------------------------
 
@@ -631,8 +752,7 @@ and to deserialize the block data into a `CBlock` in the `getblock` rpc command:
 
 In `src/rpc/mining.cpp`:
 
-`DataStream` is used by the `generateblock` rpc for serializing the output hex
-of a generated block when `generateblock` is called with `submit=false`:
+`DataStream` is used by the `generateblock` rpc for serializing the output hex of a generated block when `generateblock` is called with `submit=false`:
 
 ```cpp
     UniValue obj(UniValue::VOBJ);
@@ -648,9 +768,7 @@ of a generated block when `generateblock` is called with `submit=false`:
 
 In `src/rpc/rawtransaction.cpp`:
 
-`DataStream` is used to serialize the resulting PSBT's that get passed to
-`EncodeBase64()` and returned in
-`combinepsbt`:
+`DataStream` is used to serialize the resulting PSBT's that get passed to `EncodeBase64()` and returned in `combinepsbt`:
 
 ```cpp
 static RPCHelpMan combinepsbt()
@@ -661,8 +779,7 @@ static RPCHelpMan combinepsbt()
     return EncodeBase64(ssTx);
 ```
 
-and `finalizepsbt()` which also might serialize the final transaction hex using
-a `DataStream` of `TX_WITH_WITNESS(tx)` passed to `HexStr()`:
+and `finalizepsbt()` which also might serialize the final transaction hex using a `DataStream` of `TX_WITH_WITNESS(tx)` passed to `HexStr()`:
 
 ```cpp
 static RPCHelpMan finalizepsbt()
@@ -767,10 +884,7 @@ static RPCHelpMan joinpsbts()
 }
 ```
 
-and in `descriptorprocesspsbt`, which like `finalizepsbt` above might also
-use `DataStream` for serializing a final transaction hex that gets passed to
-`HexStr` and return if the psbt is complete:
-
+and in `descriptorprocesspsbt`, which like `finalizepsbt` above might also use `DataStream` for serializing a final transaction hex that gets passed to `HexStr` and return if the psbt is complete:
 
 ```cpp
 RPCHelpMan descriptorprocesspsbt()
@@ -828,16 +942,13 @@ static RPCHelpMan verifytxoutproof()
 
 -------
 
-## Wallet
+#### Wallet
 
-If wallet is unencrypted on disk, I feel there is no reason for us to be delicate about
-how it is handled in memory.
+If wallet is unencrypted on disk, I feel there is no reason for us to be delicate about how it is handled in memory.
 
-### How wallet disk encryption happens
+##### How wallet disk encryption happens
 
-My understanding of the way that wallet encryption on disk works is that keys
-and values are written and read by the wallet in crypted form, and they are
-decrypted/encrypted in memory by `ScriptPubKeyMan`, for example:
+My understanding of the way that wallet encryption on disk works is that keys and values are written and read by the wallet in crypted form, and they are decrypted/encrypted in memory by `ScriptPubKeyMan`, for example:
 
 ```cpp
 // [ Getting the private key for `CKeyID` address and storing the result 
@@ -865,27 +976,19 @@ bool LegacyDataSPKM::GetKey(const CKeyID &address, CKey& keyOut) const
 }
 ```
 
-Because of this, we should not be vigilant about securing memory that contains
-crypted data from the disk.
+Because of this, we should not be vigilant about securing memory that contains crypted data from the disk.
 
 ------
 
 In `src/wallet/bdb.cpp`:
 
-`BerkeleyDatabase::Rewrite()` uses `DataStream` to serialize the keys and values
-from the existing db when rewriting the database. 
+`BerkeleyDatabase::Rewrite()` uses `DataStream` to serialize the keys and values from the existing db when rewriting the database. 
 
-`BerkeleyDatabase::Rewrite()` is used when encrypting a wallet for the first
-time, since, according to comments "BDB might keep bits of the unencrypted
-private key in slack space in the database file." or when we detect a wallet
-that was encrypted by version <0.5.0 and >0.4.0 of bitcoin, presumably because
-of some horrible bug in those versions. (PR [#635](https://github.com/bitcoin/bitcoin/pull/635)
+`BerkeleyDatabase::Rewrite()` is used when encrypting a wallet for the first time, since, according to comments "BDB might keep bits of the unencrypted private key in slack space in the database file." or when we detect a wallet that was encrypted by version <0.5.0 and >0.4.0 of bitcoin, presumably because of some horrible bug in those versions. (PR [#635](https://github.com/bitcoin/bitcoin/pull/635)
 
 But at this point, the wallet has already been encrypted, and we won't be loading anything from slack space when rewriting the db, so no problems.
 
-`BerkeleyCursor::Next()` is used when cursoring through the BDB, and stores the
-retrieved Key and Value in DataStream's, if the wallet is encrypted these will
-be crypted, if not, the keys are on disk in plaintext anyways.
+`BerkeleyCursor::Next()` is used when cursoring through the BDB, and stores the retrieved Key and Value in DataStream's, if the wallet is encrypted these will be crypted, if not, the keys are on disk in plaintext anyways.
 
 `BerkeleyBatch::ReadKey()` retrieves the value for a given key in the database:
 
@@ -908,19 +1011,15 @@ bool BerkeleyBatch::ReadKey(DataStream&& key, DataStream& value)
 }
 ```
 
-This is not a concern because like above, this data is either in plaintext on
-disk, or it is being retrieved in crypted form and will be decrypted elsewhere
-by SPKM.
+This is not a concern because like above, this data is either in plaintext on disk, or it is being retrieved in crypted form and will be decrypted elsewhere by SPKM.
 
-Similar arguments to the above apply for `BerkeleyBatch::WriteKey()`,
-`BerkeleyBatch::EraseKey()`, and `BerkeleyBatch::HasKey()`
+Similar arguments to the above apply for `BerkeleyBatch::WriteKey()`, `BerkeleyBatch::EraseKey()`, and `BerkeleyBatch::HasKey()`
 
 -------
 
 In `src/wallet/db.h`:
 
-The same argument as above applies for keys and values used here in
-`DatabaseBatch` functions Read, Write, Erase, Exists:
+The same argument as above applies for keys and values used here in `DatabaseBatch` functions Read, Write, Erase, Exists:
 
 ```cpp
 /** RAII class that provides access to a WalletDatabase */
@@ -990,8 +1089,7 @@ public:
 
 In `dump.cpp`:
 
-`DumpWallet()` invoked by doing `bitcoin-wallet dump` prints all keys and values
-in a wallet, but does not decrypt them:
+`DumpWallet()` invoked by doing `bitcoin-wallet dump` prints all keys and values in a wallet, but does not decrypt them:
 
 ```cpp
 // [ I've editorialized this codeblock to focus on the part I'm interested in ]
@@ -1034,20 +1132,13 @@ bool DumpWallet(const ArgsManager& args, WalletDatabase& db, bilingual_str& erro
 
 In `src/wallet/migrate.cpp` & `src/wallet/migrate.h`:
 
-`BerkeleyRO*` exist so that we can read keys and values from a legacy bdb wallet
-when migrating so that we can drop the bdb wallet entirely in the future, the
-same as in `db.h` applies here, all the ekys and values read in
-`BerkeleyROBatch::ReadKey()`, `HasKey` and `BerkeleyROCursor::Next()` are
-crypted as in their non-RO counterparts found above.
+`BerkeleyRO*` exist so that we can read keys and values from a legacy bdb wallet when migrating so that we can drop the bdb wallet entirely in the future, the same as in `db.h` applies here, all the ekys and values read in `BerkeleyROBatch::ReadKey()`, `HasKey` and `BerkeleyROCursor::Next()` are crypted as in their non-RO counterparts found above.
 
 ---------------------
 
 In `src/wallet/rpc/backup.cpp`:
 
-`DataStream` is used to serialize the transaction inclusion proof argument to
-the `importprunedfunds()` rpc which lets pruned nodes import funds without
-rescanning if they have inclusion proofs similar to above in
-`src/rpc/txoutproof.cpp`.
+`DataStream` is used to serialize the transaction inclusion proof argument to the `importprunedfunds()` rpc which lets pruned nodes import funds without rescanning if they have inclusion proofs similar to above in `src/rpc/txoutproof.cpp`.
 
 ```cpp
 RPCHelpMan importprunedfunds()
@@ -1076,15 +1167,11 @@ RPCHelpMan importprunedfunds()
 
 In `src/wallet/rpc/txoutproof.cpp`:
 
-In `static Univalue FinishTransaction` used by the rpc's `send()` and
-`sendall()`, DataStream is used to serialize the completed psbt and print it if
-either was called with `psbt=true`.
+In `static Univalue FinishTransaction` used by the rpc's `send()` and `sendall()`, DataStream is used to serialize the completed psbt and print it if either was called with `psbt=true`.
 
-In `bumpfee_helper` when invoked as the `psbtbumpfee` rpc, a DataStream is used
-to serialize the unsigned psbt of the new transaction that gets returned.
+In `bumpfee_helper` when invoked as the `psbtbumpfee` rpc, a DataStream is used to serialize the unsigned psbt of the new transaction that gets returned.
 
-In `walletprocesspsbt()` `DataStream is used to serialize the PSBT, and if the
-transaction is complete to serialize the final transaction:
+In `walletprocesspsbt()` `DataStream is used to serialize the PSBT, and if the transaction is complete to serialize the final transaction:
 
 ```cpp
 RPCHelpMan walletprocesspsbt()
@@ -1115,8 +1202,7 @@ in the `walletcreatefundedpsbt` rpc, it contains the serialized psbt
 
 In `src/wallet/salvage.cpp`:
 
-`DataStream` is used during `RecoverDatabaseFile()` when trying to recover key
-and value data from a db, nothing gets decrypted here:
+`DataStream` is used during `RecoverDatabaseFile()` when trying to recover key and value data from a db, nothing gets decrypted here:
 
 ```cpp
     for (KeyValPair& row : salvagedData)
@@ -1147,10 +1233,7 @@ and value data from a db, nothing gets decrypted here:
 
 In `src/wallet/sqlite.cpp` & `src/wallet/sqlite.h`:
 
-`SQLiteBatch::ReadKey`, WriteKey, etc. and `SQLiteCursor::next` mirror berkeley
-and berkeley RO batches above, again: all reading crypted data from disk, data
-gets decrypted somewhere else, once it's far away from it's humble `DataStream`
-beginnings.
+`SQLiteBatch::ReadKey`, WriteKey, etc. and `SQLiteCursor::next` mirror berkeley and berkeley RO batches above, again: all reading crypted data from disk, data gets decrypted somewhere else, once it's far away from it's humble `DataStream` beginnings.
 
 ---------
 
@@ -1198,19 +1281,11 @@ bool WalletBatch::IsEncrypted()
 }
 ```
 
-master encryption keys are stored in the db (in crypted form!), this is just
-serializing the master key prefix and then searching for such an entry, no
-secrets in the prefix!
+master encryption keys are stored in the db (in crypted form!), this is just serializing the master key prefix and then searching for such an entry, no secrets in the prefix!
 
-`LoadKey` and `LoadCryptedKey` don't do any decryption of the keys. LoadKey just
-grabs all the keys that have the unencrypted key prefix as-is, and
-loadcryptedkey loads keys with the crypted key prefix as-is. The story is almost
-identical with `LoadHDChain` and `LoadEncryptionKey` and the same with the rest
-of the `LoadRecords()`, `LoadLegacyWalletRecoreds()`, and
-`LoadDescriptorWalletRecords()` circus.
+`LoadKey` and `LoadCryptedKey` don't do any decryption of the keys. LoadKey just grabs all the keys that have the unencrypted key prefix as-is, and loadcryptedkey loads keys with the crypted key prefix as-is. The story is almost identical with `LoadHDChain` and `LoadEncryptionKey` and the same with the rest of the `LoadRecords()`, `LoadLegacyWalletRecoreds()`, and `LoadDescriptorWalletRecords()` circus.
 
-I definitely got tired and slacked a little while reviewing `walletdb.cpp` but
-I'm pretty confident about this.
+I definitely got tired and slacked a little while reviewing `walletdb.cpp` but I'm pretty confident about this.
 
 -------------------------
 
@@ -1227,22 +1302,17 @@ bool CZMQPublishRawTransactionNotifier::NotifyTransaction(const CTransaction &tr
 }`
 ```
 
-Used to serialize the raw transaction that we are sending a ZeroMQ notification
-about.
+Used to serialize the raw transaction that we are sending a ZeroMQ notification about.
 
-# Not done: `SerializeData`
+#### Not done yet, `SerializeData`
 
-Let's also look at every instance of `SerializeData` being used, since this is a
-vector of bytes, with the `zero_after_free_allocator`:
+Let's also look at every instance of `SerializeData` being used, since this is a vector of bytes, with the `zero_after_free_allocator`:
 
 -----------
 
 In `src/wallet/migrate.cpp`:
 
-Used in the `BerkeleyROBatch::*` family of `ReadKey()`, `HasKey()` to represent
-the vector portion of the same `DataStream`'s I used and described above that
-have just crypted key data, or unencrypted data *if* the wallet itself is
-unencrypted, e.g.:
+Used in the `BerkeleyROBatch::*` family of `ReadKey()`, `HasKey()` to represent the vector portion of the same `DataStream`'s I used and described above that have just crypted key data, or unencrypted data *if* the wallet itself is unencrypted, e.g.:
 
 ```cpp
 
@@ -1264,8 +1334,7 @@ bool BerkeleyROBatch::ReadKey(DataStream&& key, DataStream& value)
 
 In `src/wallet/wallet.cpp`:
 
-Used in `MigrateToSQLite()` as discussed above to store the `DataStream` data
-described above:
+Used in `MigrateToSQLite()` as discussed above to store the `DataStream` data described above:
 
 ```cpp
 while (true) {
@@ -1280,3 +1349,8 @@ while (true) {
     records.emplace_back(key, value);
 }
 ```
+
+</details>
+
+[^1]: Maybe as much as 50x: https://github.com/bitcoin/bitcoin/pull/740#issuecomment-3337245
+[^2]: I am assuming this from the discussion, github seems to not have dead commits for old pr's
