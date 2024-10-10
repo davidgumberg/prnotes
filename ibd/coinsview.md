@@ -626,67 +626,84 @@ discuss this [above](#class-ccoinsview).
 
 <summary>
 
-`bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn, bool erase)`
+`bool CCoinsViewCache::BatchWrite(CoinsViewCacheCursor& cursor, const uint256 &hashBlockIn)`
 
 </summary>
 
 
 ```cpp
-// [ We are a backing view being flushed to. The child-caller passes us it's
-//   cache map as &mapcoins, and the hash of it's chaintip as &hashBlockin ]
-bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn, bool erase) {
-    for (CCoinsMap::iterator it = mapCoins.begin();
-            it != mapCoins.end();
-            it = erase ? mapCoins.erase(it) : std::next(it)) { // [ std::unordered_map::erase returns an iterator to the element following the removed ]
+// [ Historical note: prior to #28280 BatchWrite looped through every single
+//   coin in the cache rather than only the flagged entries. ]
+
+// [ We are a backing view being flushed to. The child-caller passes us a cursor
+//   into the doubly-linked list of flagged entries, and the hash of it's chaintip as &hashBlockin ]
+bool CCoinsViewCache::BatchWrite(CoinsViewCacheCursor& cursor, const uint256 &hashBlockIn) {
+    // [ For each flagged entry... ]
+    for (auto it{cursor.Begin()}; it != cursor.End(); it = cursor.NextAndMaybeErase(*it)) {
+        // [ The parent enforces the dirtiness optimization. ]
         // Ignore non-dirty entries (optimization).
-        if (!(it->second.flags & CCoinsCacheEntry::DIRTY)) {
+        if (!it->second.IsDirty()) {
             continue;
         }
-        // [ Look to see if we already have the entry that the child view is
-        //   flushing into us... ]
+        // [ Get an iterator pointing to this entry in our view. ]
         CCoinsMap::iterator itUs = cacheCoins.find(it->first);
-        // [ If we didn't... ]
+        // [ We don't have it... ]
         if (itUs == cacheCoins.end()) {
-            // [ We are the parent, the caller who owns 'mapcoins' is the child.
-            //   If the child says the entry is fresh & spent, that means we
-            //   either don't know about it, or know about it and think it's
-            //   spent, so there is no need for us to become informed of it. ]
+            // [ The below handles the case where we did not have the DIRTY coin
+            //   our child is flushing to us, and the coin is not both FRESH
+            //   and spent. If it's FRESH and spent, we just don't handle it,
+            //   it doesn't have a branch, it gets ignored, etc. .I think it's
+            //   interesting to note that the parent is the enforcer of the
+            //   freshness optimization, let's look at the other three cases
+            //   that *do* get handled here:
+            //
+            //   DIRTY, FRESH, and unspent - The most standard case, if the coin
+            //   is FRESH and unspent in the child, that means the child
+            //   (rightly) knew that we hadn't heard about this unspent coin
+            //   yet, and we are being informed of it.
+
+            //   DIRTY, Not FRESH and unspent - This shouldn't usually happen,
+            //   since any coin not known to us should be FRESH to our child.
+            //   But I guess it's possible that the child for some reason could
+            //   not be certain when adding the coin if it was FRESH or not.
+            //   Might be worth putting an assert here and running tests /
+            //   mainnet to see if we catch any of these running around!
+            // 
+            //   DIRTY, not FRESH, and spent - As above, usually shouldn't
+            //   happen that our child has a coin that is not FRESH that we
+            //   don't know about. ]
 
             // The parent cache does not have an entry, while the child cache does.
             // We can ignore it if it's both spent and FRESH in the child
-            if (!(it->second.flags & CCoinsCacheEntry::FRESH && it->second.coin.IsSpent())) {
-                // [ Subscript operator with a key that doesn't exist in a map
-                //   constructs the key in place using your argument, and
-                //   default constructs the value. ]
-
+            if (!(it->second.IsFresh() && it->second.coin.IsSpent())) {
                 // Create the coin in the parent cache, move the data up
                 // and mark it as dirty.
-                CCoinsCacheEntry& entry = cacheCoins[it->first];
-                if (erase) {
-                    // [ if erase == true then we can take ownership of the
-                    //   entry from the child before we destroy the child's
-                    //   cache... ] 
-                    // The `move` call here is purely an optimization; we rely on the
-                    // `mapCoins.erase` call in the `for` expression to actually remove
-                    // the entry from the child map.
+                itUs = cacheCoins.try_emplace(it->first).first;
+                // [ This reference is just for legibility of the passages
+                //   below. ]
+                CCoinsCacheEntry& entry{itUs->second};
+                if (cursor.WillErase(*it)) {
+                    // Since this entry will be erased,
+                    // we can move the coin into us instead of copying it
                     entry.coin = std::move(it->second.coin);
                 } else {
-                    // [ ...otherwise we do a copy ]
                     entry.coin = it->second.coin;
                 }
                 cachedCoinsUsage += entry.coin.DynamicMemoryUsage();
-                // [ We need to tell *our* parent about this... ]
-                entry.flags = CCoinsCacheEntry::DIRTY;
+
+                // [ Our parent needs to hear about this. ]
+                entry.AddFlags(CCoinsCacheEntry::DIRTY, *itUs, m_sentinel);
                 // We can mark it FRESH in the parent if it was FRESH in the child
                 // Otherwise it might have just been flushed from the parent's cache
                 // and already exist in the grandparent
-                if (it->second.flags & CCoinsCacheEntry::FRESH) {
-                    entry.flags |= CCoinsCacheEntry::FRESH;
+                if (it->second.IsFresh()) {
+                    entry.AddFlags(CCoinsCacheEntry::FRESH, *itUs, m_sentinel);
                 }
+
             }
         } else {
             // Found the entry in the parent cache
-            if ((it->second.flags & CCoinsCacheEntry::FRESH) && !itUs->second.coin.IsSpent()) {
+            if (it->second.IsFresh() && !itUs->second.coin.IsSpent()) {
                 // The coin was marked FRESH in the child cache, but the coin
                 // exists in the parent cache. If this ever happens, it means
                 // the FRESH flag was misapplied and there is a logic error in
@@ -694,28 +711,34 @@ bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn
                 throw std::logic_error("FRESH flag misapplied to coin that exists in parent cache");
             }
 
-            // [ If we have the entry as fresh (our parent doesn't have it /
-            //   knows it's spent) then we can just delete it from ourselves. ]
-            if ((itUs->second.flags & CCoinsCacheEntry::FRESH) && it->second.coin.IsSpent()) {
+            // [ The coin was FRESH in us and our child is telling us told that
+            //   it's spent, we can erase it in us without ever telling our
+            //   parent. ]
+            if (itUs->second.IsFresh() && it->second.coin.IsSpent()) {
                 // The grandparent cache does not have an entry, and the coin
                 // has been spent. We can just delete it from the parent cache.
                 cachedCoinsUsage -= itUs->second.coin.DynamicMemoryUsage();
+                // [ Notably here, the child seems responsible for the FRESHness
+                //   optimization. ]
                 cacheCoins.erase(itUs);
-            // [
+
+            // [ The below handles both of the not FRESH cases, whether spent or
+            //   unspent, we need to flush to the parent which either thinks the
+            //   coin is spent, we mark it as spent, not removing it since we likely
+            need to flush
+            //   spentness to our parent remove the coin
             } else {
                 // A normal modification.
                 cachedCoinsUsage -= itUs->second.coin.DynamicMemoryUsage();
-                // [ Take ownership since the child is going to be destroyed... ]
-                if (erase) {
-                    // The `move` call here is purely an optimization; we rely on the
-                    // `mapCoins.erase` call in the `for` expression to actually remove
-                    // the entry from the child map.
+                if (cursor.WillErase(*it)) {
+                    // Since this entry will be erased,
+                    // we can move the coin into us instead of copying it
                     itUs->second.coin = std::move(it->second.coin);
                 } else {
                     itUs->second.coin = it->second.coin;
                 }
                 cachedCoinsUsage += itUs->second.coin.DynamicMemoryUsage();
-                itUs->second.flags |= CCoinsCacheEntry::DIRTY;
+                itUs->second.SetDirty(*itUs, m_sentinel);
                 // NOTE: It isn't safe to mark the coin as FRESH in the parent
                 // cache. If it already existed and was spent in the parent
                 // cache then marking it FRESH would prevent that spentness
