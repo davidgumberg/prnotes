@@ -17,8 +17,8 @@ You can learn more about flame graphs
 
 ## Generating Flame Graphs On Linux
 
-The Linux kernel project maintains a command called `perf` that provides a high
-level interface to the
+The Linux kernel project maintains a tool named `perf` that provides a high level
+interface to the
 [perf_event_open(2)](http://www.man7.org/linux/man-pages/man2/perf_event_open.2.html)
 system call. Perf lets you generate accurate CPU profiles of kernel events and
 userspace applications with relatively low overhead. This is the recommended way
@@ -30,7 +30,7 @@ For more information about `perf`:
  * [Perf Tutorial](https://perf.wiki.kernel.org/index.php/Tutorial)
  * [Perf Examples](http://www.brendangregg.com/perf.html)
 
-### Setting Up Perf
+### Installation
 
 Perf is available on most Linux distros in a package named `perf` or some
 variant thereof:
@@ -53,16 +53,65 @@ On Linux you can check that your executable has debugging symbols by checking fo
 $ readelf -S build/src/bitcoind | grep .debug_str
 ```
 
+On most distros outside of Debian, you can probably install a package named
+something like `js-d3-flame-graph`:
+
+```bash
+# On most yum/dnf based distros
+sudo dnf install js-d3-flame-graph
+```
+
+<details> 
+
+<summary>
+
+#### d3-flame-graph template if no package is available
+
+</summary>
+
+On many systems, an HTML template that is required for perf to generate
+interactive flamegraphs is available as a package named something like
+`d3-flame-graph`:
+
+```bash
+# On fedora:
+sudo dnf install d3-flame-graph
+```
+
+Installing as a package is not strictly necessary (and not possible e.g. on
+Debian) since it's really just a single html file put in the place that the
+`perf` tool expects to find it, so we can just create the directory with the
+right permissions and download the file:
+
+```bash
+sudo mkdir -m 755 /usr/share/d3-flame-graph
+# Check yourself that this is the right link! `perf` should tell you the url of
+# the version of the template that it likes when it complains about the template
+# missing.
+sudo curl https://cdn.jsdelivr.net/npm/d3-flame-graph@4.1.3/dist/templates/d3-flamegraph-base.html -o /usr/share/d3-flame-graph/d3-flamegraph-base.html
+```
+
+Also, perf can grab the d3 template on it's own as long as you don't run it
+in "live mode" (It's not "live mode" if you are creating a perf recording
+and then converting it after), I imagine this issue will be fixed in the
+future.
+
+(https://lore.kernel.org/bpf/20230119183118.126387-3-irogers@google.com/T/)
+
+</details>
+
+
 ### Frame pointer omission
 
 When I put my ear to the street, I hear people saying that generating call
-graphs from frame pointers is better than DWARF unwinding.
+graphs from frame pointers is better than DWARF unwinding, since there is less
+overhead, but I have not investigated this claim.
 
 So, compile with `-fno-omit-frame-pointer`, or if you don't like that run `perf`
 with `--call-graph dwarf`. (Overrides the default `--call-graph fp`)
 
 ```bash
-$ cmake -B build -DAPPEND_CPPFLAGS="-fno-omit-frame-pointer"
+$ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPPEND_CPPFLAGS="-fno-omit-frame-pointer"
 ```
 
 <details>
@@ -106,41 +155,6 @@ That's it, this will generate an interactive, searchable flamegraph.html file
 that you can `firefox flamegraph.html` and start playing with once the command
 completes.
 
-
-<details> 
-
-<summary>
-
-#### Troubleshooting d3-flame-graph "dependency"
-
-</summary>
-
-Some documentation (today) suggests that you install the d3-flame-graph
-dependency, (which just provides an html template) before using this script,
-but that dependency is no longer needed / can be hard to "install" on debian.
-
-The easiest solution if perf complains of it's absence when you try to
-create a flamegraph, will be to download the html template into the place
-perf looks for it:
-
-```bash
-sudo mkdir -m 755 /usr/share/d3-flame-graph
-# Check yourself that this is the right link! `perf` should tell you the url of
-# the version of the template that it likes when it complains about the template
-# missing.
-sudo curl https://cdn.jsdelivr.net/npm/d3-flame-graph@4.1.3/dist/templates/d3-flamegraph-base.html -o /usr/share/d3-flame-graph/d3-flamegraph-base.html
-```
-
-Also, perf can grab the d3 template on it's own as long as you don't run it
-in "live mode" (It's not "live mode" if you are creating a perf recording
-and then converting it after), I imagine this issue will be fixed in the
-future.
-
-(https://lore.kernel.org/bpf/20230119183118.126387-3-irogers@google.com/T/)
-
-</details>
-
-
 #### Running process
 
 To profile a running `bitcoind` process for 60 seconds you can use the following
@@ -148,7 +162,7 @@ command:
 
 ```bash
 # Profile bitcoind for 60 seconds (replace PID).
-perf record -g -F 101 -p PID -- sleep 60
+perf script flamegraph -F 101 -p PID sleep 60
 ```
 
 You should replace `PID` with the process ID of `bitcoind` (on most Linux
@@ -167,7 +181,7 @@ repository in your `$PATH` you could generate a flame graph like so:
 
 ```bash
 # Create a flame graph named "bitcoin.svg"
-$ perf script | stackcollapse-perf.pl --all | flamegraph.pl --color bitcoin > bitcoin.svg
+$ perf script | stackcollapse-perf.pl --all | flamegraph.pl > bitcoin.svg
 ```
 
 The flags given above for `stackcollapse-perf.pl` and `flamegraph.pl` assume
