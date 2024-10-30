@@ -211,9 +211,6 @@ include various parts of the collapsed stack data. The data format expected by
 (e.g. to collapse adjacent stack frames by class or file). See the upstream
 FlameGraph repository for more examples.
 
-
-
-
 ## Generating Flame Graphs On macOS and Windows
 
 The FlameGraph repository has scripts for processing the output of a large

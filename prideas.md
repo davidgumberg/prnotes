@@ -19,3 +19,6 @@
 - Use secure allocator instead of memcleanse for cleaning up fallback windows
   seed generation (randomenv.cpp):
   https://bitcoin-irc.chaincode.com/bitcoin-core-dev/2021-10-15#723906
+
+- Test & re-open darosior's fix for: https://github.com/bitcoin/bitcoin/issues/15883
+    - https://github.com/darosior/bitcoin/tree/windows_blocknotify_blink

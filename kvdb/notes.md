@@ -26,7 +26,7 @@ depend on hardware/use-case.
 
 # Coinsdb properties
 
-Keys are 35 bytes serialized as:
+Keys are 37 bytes serialized as:
     - 1 byte "key" prefix that indicates the type of the data.
         - key(`DB_COIN`) == 'C'
     - 32-byte txid of the parent transaction
