@@ -143,7 +143,11 @@ bool IsSolvable() const override
 #### Expand*
 
 `DescriptorImpl::ExpandHelper()` is invoked by the `Expand`, `ExpandFromCache`,
-and `ExpandPrivate` functions that every `DescriptorImpl` provides for retrieving the getting the 
+and `ExpandPrivate` functions that every `DescriptorImpl` provides for
+retrieving the output scripts and signing provider for a given pos of a
+descriptor.
+
+    Nit: `ExpandHelper` should probably be protected instead of public.
 
 ```cpp
     // NOLINTNEXTLINE(misc-no-recursion)
@@ -236,6 +240,7 @@ protected:
         }
     }
 public:
+    // [
     PKDescriptor(std::unique_ptr<PubkeyProvider> prov, bool xonly = false) : DescriptorImpl(Vector(std::move(prov)), "pk"), m_xonly(xonly) {}
     bool IsSingleType() const final { return true; }
 
@@ -256,7 +261,9 @@ public:
 
     std::unique_ptr<DescriptorImpl> Clone() const override
     {
-        return std::make_unique<PKDescriptor>(m_pubkey_args.at(0)->Clone(), m_xonly);
+        // [ Returns a unique_ptr to a PKDescriptor constructed from this one's
+        //   first m_pubkey_arg (cloned) and m_xonly. ]
+        std::make_unique<PKDescriptor>(m_pubkey_args.at(0)->Clone(), m_xonly);
     }
 };
 ```
