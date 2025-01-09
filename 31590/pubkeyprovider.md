@@ -108,7 +108,9 @@ public:
 ```
 
 Of immediate interest is it's implementation of `PubkeyProvider::GetPubKey()`,
-which takes a position and `const SigningProvider&`, and  provider, key, and 
+which takes a position and `const SigningProvider&` (ignored), a pubkey ref
+(which it will fill with the pubkey), and `KeyOriginInfo` which it will fill
+with path info.
 
 ```cpp
 class ConstPubkeyProvider final : public PubkeyProvider
@@ -116,16 +118,66 @@ class ConstPubkeyProvider final : public PubkeyProvider
 public:
     bool GetPubKey(int pos, const SigningProvider& arg, CPubKey& key, KeyOriginInfo& info, const DescriptorCache* read_cache = nullptr, DescriptorCache* write_cache = nullptr) const override
     {
+        // [ ConstPubkeyProvider just sets the key to our m_pubkey...]
         key = m_pubkey;
+        // [ info is our keyorigininfo result, the path is blank since this is a
+        //   constpubkey... ]
         info.path.clear();
+        // [ CKeyID represents the hash160 of a serialized pubkey, it is a
+        //   uint160 (160-bit opaque blob) GetID() returns this for us. ]
         CKeyID keyid = m_pubkey.GetID();
+        
+        // [ Copy the first 32 bits of the hash160 into the keyorigininfo
+        //   fingerprint we're filling for the caller. ]
         std::copy(keyid.begin(), keyid.begin() + sizeof(info.fingerprint), info.fingerprint);
+        // [ Return true to indicate success? }
         return true;
     }
 };
 ```
 
+Relevant to [#31590](https://github.com/bitcoin/bitcoin/pull/31590) is its
+implementation of `GetPrivKey()` and `ToPrivateString()`.
+
 ```cpp
+class ConstPubkeyProvider final : public PubkeyProvider
+{
+public:
+    // [ Takes a const-ref to a signingprovider which we'll use, and a ref to a
+    //   key which we'll put our result in. ]
+    bool GetPrivKey(int pos, const SigningProvider& arg, CKey& key) const override
+    {
+        // [ Signing providers index by key ID. ]
+        return arg.GetKey(m_pubkey.GetID(), key);
+    }
+
+    bool ToPrivateString(const SigningProvider& arg, std::string& ret) const override
+    {
+        CKey key;
+        if (m_xonly) {
+            for (const auto& keyid : XOnlyPubKey(m_pubkey).GetKeyIDs()) {
+                arg.GetKey(keyid, key);
+                if (key.IsValid()) break;
+            }
+        } else {
+            arg.GetKey(m_pubkey.GetID(), key);
+        }
+        if (!key.IsValid()) return false;
+        ret = EncodeSecret(key);
+        return true;
+    }
+};
+```
+
+
+<details>
+
+<summary>The rest of ConstPubkeyProvider</summary>
+
+```cpp
+class ConstPubkeyProvider final : public PubkeyProvider
+{
+public:
     bool IsRange() const override { return false; }
     size_t GetSize() const override { return m_pubkey.size(); }
     std::string ToString(StringType type) const override { return m_xonly ? HexStr(m_pubkey).substr(2) : HexStr(m_pubkey); }
@@ -149,10 +201,6 @@ public:
         ret = ToString(StringType::PUBLIC);
         return true;
     }
-    bool GetPrivKey(int pos, const SigningProvider& arg, CKey& key) const override
-    {
-        return arg.GetKey(m_pubkey.GetID(), key);
-    }
     std::optional<CPubKey> GetRootPubKey() const override
     {
         return m_pubkey;
@@ -168,6 +216,8 @@ public:
 };
 ```
 
+</details>
+
 # `class CPubKey`
 
 ```cpp
@@ -182,20 +232,65 @@ public:
     static constexpr unsigned int COMPRESSED_SIZE        = 33;
     static constexpr unsigned int SIGNATURE_SIZE         = 72;
     static constexpr unsigned int COMPACT_SIGNATURE_SIZE = 65;
+
 private:
 
+    // [ Note that we always reserve SIZE (65) bytes for a pubkey,
+    //   if the key is COMPRESSED_SIZE, the latter half just goes unused and
+    //   size is determined by the first byte, see GetLen() below. ]
     /**
      * Just store the serialized data.
      * Its length can very cheaply be computed from the first byte.
      */
     unsigned char vch[SIZE];
 
+    //! Compute the length of a pubkey with a given first byte.
+    unsigned int static GetLen(unsigned char chHeader)
+    {
+        if (chHeader == 2 || chHeader == 3)
+            return COMPRESSED_SIZE;
+        if (chHeader == 4 || chHeader == 6 || chHeader == 7)
+            return SIZE;
+        // [ Note that an invalidated key will return 0 here as well. ]
+        return 0;
+    }
+
+    //! Set this key data to be invalid
+    void Invalidate()
+    {
+        vch[0] = 0xFF;
+    }
+
 public:
+
+    // [ If this code is ever retouched it might be a good idea to change it to
+    //   a std::span. ]
+    //! Initialize a public key using begin/end iterators to byte data.
+    template <typename T>
+    void Set(const T pbegin, const T pend)
+    {
+        // [ The ternary makes sure we have at least one readable byte, before
+        //   checking it to determine if this is a compressed or full key. ]
+        int len = pend == pbegin ? 0 : GetLen(pbegin[0]);
+        // [ If we have at least one readable byte, and our iterator length
+        //   matches what the prefix byte suggests.. ]
+        if (len && len == (pend - pbegin))
+            memcpy(vch, (unsigned char*)&pbegin[0], len);
+        else
+            Invalidate();
+    }
 
     //! Construct a public key from a byte vector.
     explicit CPubKey(Span<const uint8_t> _vch)
     {
         Set(_vch.begin(), _vch.end());
+    }
+
+    //! Get the KeyID of this public key (hash of its serialization)
+    CKeyID GetID() const
+    {
+        // [ Hash160 of size() many bytes of vch. ] 
+        return CKeyID(Hash160(Span{vch}.first(size())));
     }
 ```
 
@@ -254,6 +349,42 @@ CPubKey XOnlyPubKey::GetEvenCorrespondingCPubKey() const
 }
 ```
 
+Also relevant to this question is `XOnlyPubKey::GetKeyIDs()` which returns a
+vector `CKeyID`'s of the two possible keys (odd and even y-coordinate) of a
+given x-coordinate/xonlypubkey. The `CKeyID` of a pubkey is the `HASH160` of the
+serialized compressed pubkey, the first 4 bytes of the `CKeyID` are the
+`fingerprint` of the key, part of its `CKeyOrigin`.
+
+```cpp
+std::vector<CKeyID> XOnlyPubKey::GetKeyIDs() const
+{
+    std::vector<CKeyID> out;
+    // For now, use the old full pubkey-based key derivation logic. As it is indexed by
+    // Hash160(full pubkey), we need to return both a version prefixed with 0x02, and one
+    // with 0x03.
+    // [ 33 byte (compressed pubkey) array initialized with the even parity
+    //   prefix. ]
+    unsigned char b[33] = {0x02};
+
+    // [ copy the 32 byte x-coordinate into bytes indexed 1-32 of b. ]
+    std::copy(m_keydata.begin(), m_keydata.end(), b + 1);
+    // [ This probably could have just been a constructor invocation. ]
+    CPubKey fullpubkey;
+    // [ Set the full CPubkey from b. ]
+    fullpubkey.Set(b, b + 33);
+    // [ append the keyid to the result vector. ]
+    out.push_back(fullpubkey.GetID());
+
+    // [ modify the first byte to the odd parity prefix. ]
+    b[0] = 0x03;
+    // [ Set the CPubKey from this new b. ]
+    fullpubkey.Set(b, b + 33);
+    // [ append the keyid to the result vector. ]
+    out.push_back(fullpubkey.GetID());
+    return out;
+}
+```
+
 # `struct KeyOriginInfo`
 
 Quoting from [`doc/descriptors.md`](https://github.com/bitcoin/bitcoin/blob/master/doc/descriptors.md),
@@ -285,3 +416,44 @@ struct KeyOriginInfo
     std::vector<uint32_t> path;
 };
 ```
+
+# `class SigningProvider`
+
+Abstract base-class that defines an interface to "be implemented by keystores
+that support signing." A few thoughts off the top of my head of what it aims to
+support is e.g. returning the private key for a public key and returning the CScript for a given scripthash, but note that it indexes by `CKeyID`
+
+```cpp
+/** An interface to be implemented by keystores that support signing. */
+class SigningProvider
+{
+public:
+    virtual ~SigningProvider() = default;
+    virtual bool GetCScript(const CScriptID &scriptid, CScript& script) const { return false; }
+    virtual bool HaveCScript(const CScriptID &scriptid) const { return false; }
+    virtual bool GetPubKey(const CKeyID &address, CPubKey& pubkey) const { return false; }
+    virtual bool GetKey(const CKeyID &address, CKey& key) const { return false; }
+    virtual bool HaveKey(const CKeyID &address) const { return false; }
+    virtual bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const { return false; }
+};
+``` 
+
+Some functions can be implemented immediately on the abstract base class, namely
+functions related to `XOnlyPubKey`'s, like `GetKeyByXOnly`:
+
+```cpp
+class SigningProvider
+{
+public:
+    bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
+    {
+        
+        for (const auto& id : pubkey.GetKeyIDs()) {
+            if (GetKey(id, key)) return true;
+        }
+        return false;
+    }
+};
+```
+
+
