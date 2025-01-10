@@ -155,13 +155,17 @@ public:
     {
         CKey key;
         if (m_xonly) {
+            // [ Loop through a vec of all possible key ID's for a given xonly. ]
             for (const auto& keyid : XOnlyPubKey(m_pubkey).GetKeyIDs()) {
                 arg.GetKey(keyid, key);
+                // [ If it's a valid key break.. ]
                 if (key.IsValid()) break;
             }
         } else {
+            // [ Trivial case. ]
             arg.GetKey(m_pubkey.GetID(), key);
         }
+         // [ Check if it's valid. ]
         if (!key.IsValid()) return false;
         ret = EncodeSecret(key);
         return true;
@@ -169,6 +173,31 @@ public:
 };
 ```
 
+### xonly keys
+
+[BIP-0340](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki)
+describes the Schnorr Signature scheme used by Bitcoin as part of the taproot
+upgrade(s). BIP-0340 uses x-only pubkey serialization (without parity prefix
+bit) to save a byte in both key and signature.
+
+It defines every pubkey serialized as a 32-byte x-coordinate as implicitly
+having an even (parity prefix `0x02`) y-coordinate. I spent a great deal of time
+confused by this because I assumed that BIP 340 required the use of a private
+key which when multiplied by the generator point would result in an 'even'
+y-coordinate, and if at first you got an odd y-coordinate you would pick another
+private key, but this is not the case.
+
+What is actually done is that for any given keypair $(sk, P)$ the signer
+generates, if P has an even y-coordinate, it is $(sk, P)$ are used, but if it
+has an odd y-coordinate, the signer uses $(n - sk, -P)$ (where $n$ is the group
+order). The point is serialized without any parity bit and the signature
+validator assumes the even y-coordinate point of the two $(x, y_1), (x, y_2)
+where y_2 = n - y_1$ that are possible when validating. See (the
+under-specifically named) `class KeyPair` which handles this conversion when
+signing in `MutableTransactionSignatureCreator::CreateSchnorrSig()`->`SignatureHashSchnorr()`.
+
+Better writing on the motivation and rationale of this design choice for Schnorr
+signatures are indexed here: https://bitcoinops.org/en/topics/x-only-public-keys/
 
 <details>
 
@@ -180,8 +209,7 @@ class ConstPubkeyProvider final : public PubkeyProvider
 public:
     bool IsRange() const override { return false; }
     size_t GetSize() const override { return m_pubkey.size(); }
-    std::string ToString(StringType type) const override { return m_xonly ? HexStr(m_pubkey).substr(2) : HexStr(m_pubkey); }
-    bool ToPrivateString(const SigningProvider& arg, std::string& ret) const override
+    std::string ToString(StringType type) const override { return m_xonly ? HexStr(m_pubkey).substr(2) : HexStr(m_pubkey); } bool ToPrivateString(const SigningProvider& arg, std::string& ret) const override
     {
         CKey key;
         if (m_xonly) {
@@ -421,7 +449,8 @@ struct KeyOriginInfo
 
 Abstract base-class that defines an interface to "be implemented by keystores
 that support signing." A few thoughts off the top of my head of what it aims to
-support is e.g. returning the private key for a public key and returning the CScript for a given scripthash, but note that it indexes by `CKeyID`
+support is e.g. returning the private key for a public key and returning the
+CScript for a given scripthash, but note that it indexes by `CKeyID`
 
 ```cpp
 /** An interface to be implemented by keystores that support signing. */
@@ -432,6 +461,7 @@ public:
     virtual bool GetCScript(const CScriptID &scriptid, CScript& script) const { return false; }
     virtual bool HaveCScript(const CScriptID &scriptid) const { return false; }
     virtual bool GetPubKey(const CKeyID &address, CPubKey& pubkey) const { return false; }
+    // [ Take a const ref to a CKey
     virtual bool GetKey(const CKeyID &address, CKey& key) const { return false; }
     virtual bool HaveKey(const CKeyID &address) const { return false; }
     virtual bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const { return false; }
@@ -447,7 +477,8 @@ class SigningProvider
 public:
     bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
     {
-        
+        // [ Check GetKey() for all (two, for now) possible CKeyID's for a
+        //   given x coord, return true if we have a match. ]
         for (const auto& id : pubkey.GetKeyIDs()) {
             if (GetKey(id, key)) return true;
         }
