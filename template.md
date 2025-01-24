@@ -6,18 +6,3 @@ _All code comments in `[]` are my own._
 ## Problem
 
 ## Solution
-
-## Annotated code
-
-<details>
-
-<summary>
-
-Placeholder summary
-
-</summary>
-
-```
-```
-
-</details>
