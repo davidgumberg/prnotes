@@ -1,0 +1,3 @@
+# justfile needs tabs not spaces for some heredoc stuff
+[justfile]
+indent_style = tab
