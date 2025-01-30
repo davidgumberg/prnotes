@@ -23,3 +23,6 @@
 - Test & re-open darosior's fix for: https://github.com/bitcoin/bitcoin/issues/15883
     - https://github.com/darosior/bitcoin/tree/windows_blocknotify_blink
 - Compact values in dbcache below assumevalid checkpoint?
+
+- Taking a lambda parameter? to solve ccoinsview cache next and maybeerase batch
+  write footgun?
