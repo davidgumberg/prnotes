@@ -185,17 +185,52 @@ bool LegacyDataSPKM::AddWatchOnlyInMem(const CScript &dest)
 {
     LOCK(cs_KeyStore);
     // [ Going back to my question from the very top, it's still not clear to me
-    //   what the relationship between setWatchOnly and mapScripts is, a bit of
-    maybe ]
+    //   what the relationship between setWatchOnly and mapScripts is.]
     setWatchOnly.insert(dest);
     CPubKey pubKey;
+
+    // [ Was not obvious to me, Extract 
     if (ExtractPubKey(dest, pubKey)) {
         mapWatchKeys[pubKey.GetID()] = pubKey;
         ImplicitlyLearnRelatedKeyScripts(pubKey);
     }
     return true;
 }
+
+static bool ExtractPubKey(const CScript &dest, CPubKey& pubKeyOut)
+{
+    std::vector<std::vector<unsigned char>> solutions;
+    // [ Only P2PK scripts, p2pkh and p2wpkh have different TxoutType, also
+    //   solver is a nice simple function, I thought it would be a monster, but
+    //   basically TxoutType::PUBKEY will be returned by solver if the script matches
+    //   MatchPayToPubkey()!.]
+    return Solver(dest, solutions) == TxoutType::PUBKEY &&
+        (pubKeyOut = CPubKey(solutions[0])).IsFullyValid();
+}
+
+typedef std::vector<unsigned char> valtype;
+
+static bool MatchPayToPubkey(const CScript& script, valtype& pubkey)
+{
+    // [ P2PK: OP_PUSHBYTES{uncompressed_key_size} + uncompressed key + OP_CHECKSIG ]
+    if (script.size() == CPubKey::SIZE + 2 && script[0] == CPubKey::SIZE && script.back() == OP_CHECKSIG) {
+        pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::SIZE + 1);
+        // [ ensures PK size matches the prefix. ]
+        return CPubKey::ValidSize(pubkey);
+    }
+        
+    // [ I actually didn't know
+    // [ P2PK: OP_PUSHBYTES{uncompressed_key_size} + uncompressed key + OP_CHECKSIG ]
+    if (script.size() == CPubKey::COMPRESSED_SIZE + 2 && script[0] == CPubKey::COMPRESSED_SIZE && script.back() == OP_CHECKSIG) {
+        pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::COMPRESSED_SIZE + 1);
+        return CPubKey::ValidSize(pubkey);
+    }
+    return false;
+}
+
 ```
+
+To be clear, this 
 
 
 
