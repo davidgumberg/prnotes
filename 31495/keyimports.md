@@ -1,5 +1,7 @@
 # Functions of interest in key importing
 
+This is mainly looking at key importing in legacy spkm's.
+
 What I'm most interested in are `mapScript` and setWatchOnly, in particular I'm
 confused about why functions with names like `AddWatchOnly*` that take
 `CScript()`'s write them to the spkm's `mapScript`, and I'm also confused about
@@ -16,6 +18,27 @@ four separate authors, [#2121](https://github.com/bitcoin/bitcoin/pull/2121)) ->
 [#2861](https://github.com/bitcoin/bitcoin/pull/2861) ->
 [#3383](https://github.com/bitcoin/bitcoin/pull/3383) -> [#4045](https://github.com/bitcoin/bitcoin/pull/4045))
 
+Another thing to note is that `LegacyScriptPubKeyMan` is a descendant of
+`LegacyDataSPKM`. As I understand, the former is the true legacy spkm, and the
+latter is the read only post-legacy deprecation handler of legacy spkm's during
+migration. `LegacyDataSPKM` inherits multiply from `ScriptPubKeyMan` and
+`FillableSigningProvider`.
+
+It also seems that solving data is not explicitly linked with scripts on import,
+we just keep a map of the script and it's Hash160, and I assume find the right
+keys later when it's time to sign.
+
+Relevant comments re: my `mapScripts` confusion:
+
+>> What sorts of scripts are being stored in this map? Input scripts, output
+>> scripts, redeemscripts, witness programs, witness scripts, all of the above,
+>> a subset of the above, etc.?
+>
+>  All of the above. All types of scripts are stored in mapScripts, without
+>  contexts. Thus all scripts in mapScripts can appear in any context. That is
+>  the insanity of legacy IsMine.
+
+(https://github.com/bitcoin/bitcoin/pull/30328#discussion_r1844645672k)
 
 ```cpp
 // [ Helper used by wallet rpc's like importmulti, I've editorialized to remove
@@ -94,7 +117,7 @@ bool LegacyScriptPubKeyMan::ImportScripts(const std::set<CScript> scripts, int64
             WalletLogPrintf("Already have script %s, skipping\n", HexStr(entry));
             continue;
         }
-        // [ Just adds CScriptId
+        // [ Just adds CScriptId : CScript to mapScripts. ]
         if (!AddCScriptWithDB(batch, entry)) {
             return false;
         }
@@ -189,9 +212,16 @@ bool LegacyDataSPKM::AddWatchOnlyInMem(const CScript &dest)
     setWatchOnly.insert(dest);
     CPubKey pubKey;
 
-    // [ Was not obvious to me, Extract 
+    // [ wasn't obvious to me, p2pk scripts only. does stuff get turned into p2pk before
+    //   it arrives here? ]
     if (ExtractPubKey(dest, pubKey)) {
+        // [ mapWatchKeys appears to be the p2pkh map, it's std::map <CKeyID, CPubKey> ]
         mapWatchKeys[pubKey.GetID()] = pubKey;
+        // [ This is the strange part to me, we learn the related keyscripts
+        //   into mapScripts, not setWatchOnly, why? I thought mapSCripts just
+        //   mapped scripts we have the solving data for, but I guess not... OK
+        //   more context for this in LegacyDataSPKM::GetScriptPubKeys(), in
+        //   short, mapScripts is a superset of spendable scripts, why?
         ImplicitlyLearnRelatedKeyScripts(pubKey);
     }
     return true;
@@ -219,7 +249,7 @@ static bool MatchPayToPubkey(const CScript& script, valtype& pubkey)
         return CPubKey::ValidSize(pubkey);
     }
         
-    // [ I actually didn't know
+    // [ I actually didn't know p2pk could be both compressed and uncompressed. ]
     // [ P2PK: OP_PUSHBYTES{uncompressed_key_size} + uncompressed key + OP_CHECKSIG ]
     if (script.size() == CPubKey::COMPRESSED_SIZE + 2 && script[0] == CPubKey::COMPRESSED_SIZE && script.back() == OP_CHECKSIG) {
         pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::COMPRESSED_SIZE + 1);
@@ -228,10 +258,167 @@ static bool MatchPayToPubkey(const CScript& script, valtype& pubkey)
     return false;
 }
 
+void FillableSigningProvider::ImplicitlyLearnRelatedKeyScripts(const CPubKey& pubkey)
+{
+    AssertLockHeld(cs_KeyStore);
+    // [ Get keyhash ] 
+    CKeyID key_id = pubkey.GetID();
+    // This adds the redeemscripts necessary to detect P2WPKH and P2SH-P2WPKH
+    // outputs. Technically P2WPKH outputs don't have a redeemscript to be
+    // spent. However, our current IsMine logic requires the corresponding
+    // P2SH-P2WPKH redeemscript to be present in the wallet in order to accept
+    // payment even to P2WPKH outputs.
+    // Also note that having superfluous scripts in the keystore never hurts.
+    // They're only used to guide recursion in signing and IsMine logic - if
+    // a script is present but we can't do anything with it, it has no effect.
+    // "Implicitly" refers to fact that scripts are derived automatically from
+    // existing keys, and are present in memory, even without being explicitly
+    // loaded (e.g. from a file).
+    // [ Uncompressed pubkeys violate standardness rules for segwit, so we don't
+    //   add them. ]
+    if (pubkey.IsCompressed()) {
+        // [ I don't understand how the comment above claims to add the
+        //   redeemscripts necessary for both p2wpkh and p2sh-p2wpkh, I guess we
+        //   check both sides of mapScripts when deciding if an SPK ismine... no
+        //   that's silly, the comment actually tells us, but a bit opaquely, at
+        //   least to me, it seems like we maybe hash160 any p2wpkh we encounter
+        //   before checking if IsMine() ]
+        CScript script = GetScriptForDestination(WitnessV0KeyHash(key_id));
+        // This does not use AddCScript, as it may be overridden.
+        CScriptID id(script);
+        mapScripts[id] = std::move(script);
+    }
+}
 ```
 
-To be clear, this 
+## `ImportPrivKeys()`
 
+In summary, this adds a key to 
+
+```cpp
+bool LegacyScriptPubKeyMan::ImportPrivKeys(const std::map<CKeyID, CKey>& privkey_map, const int64_t timestamp)
+{
+    // [ grab the db batch... ]
+    WalletBatch batch(m_storage.GetDatabase());
+    // [ loop through each entry <pkh, privkey> ]
+    for (const auto& entry : privkey_map) {
+        // [ get a const ref, I think this is just for cleanliness... ]
+        const CKey& key = entry.second;
+        // [ get the priv's pub. ]
+        CPubKey pubkey = key.GetPubKey();
+        // [ same as the first expression in the for loop. ]
+        const CKeyID& id = entry.first;
+        assert(key.VerifyPubKey(pubkey));
+        // [ HaveKey checks the SPKM's `keys` map which is std::map<CKeyID, CKey>,
+        //   alternately written, std::map<pkh, privkey> ]
+        // Skip if we already have the key
+        if (HaveKey(id)) {
+            WalletLogPrintf("Already have key with pubkey %s, skipping\n", HexStr(pubkey));
+            continue;
+        }
+        // [ TODO: This seems wrong, shouldn't we only do this when the key insertion
+        //   succeeds in the if branch below? ]
+        mapKeyMetadata[id].nCreateTime = timestamp;
+        // If the private key is not present in the wallet, insert it.
+        if (!AddKeyPubKeyWithDB(batch, key, pubkey)) {
+            return false;
+        }
+        UpdateTimeFirstKey(timestamp);
+    }
+    return true;
+}
+
+// [ This function closely approximates what really happens when
+//   AddKeyPubKeyWithDB above happens, see below for more context. ]
+bool FillableSigningProvider::AddKeyPubKey(const CKey& key, const CPubKey &pubkey)
+{
+    LOCK(cs_KeyStore);
+    // [ Adds the key to std::map<CKeyId, CKey> or std::map<pkh, privkey>]
+    mapKeys[pubkey.GetID()] = key; 
+    // [ We looked at this above, adds the "scripts necessary" for p2sh-p2wpkh
+    //   and p2wpkh to mapScripts.  (they both need just one script, the
+    //   p2sh-p2wpkh present in mapScripts) ]
+    ImplicitlyLearnRelatedKeyScripts(pubkey);
+    return true;
+}
+
+bool LegacyScriptPubKeyMan::AddKeyPubKeyWithDB(WalletBatch& batch, const CKey& secret, const CPubKey& pubkey)
+{
+    AssertLockHeld(cs_KeyStore);
+
+    // Make sure we aren't adding private keys to private key disabled wallets
+    assert(!m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS));
+
+    // [ ?? ]
+    // FillableSigningProvider has no concept of wallet databases, but calls AddCryptedKey
+    // which is overridden below.  To avoid flushes, the database handle is
+    // tunneled through to it.
+    bool needsDB = !encrypted_batch;
+    if (needsDB) {
+        encrypted_batch = &batch;
+    }
+    if (!AddKeyPubKeyInner(secret, pubkey)) {
+        if (needsDB) encrypted_batch = nullptr;
+        return false;
+    }
+    if (needsDB) encrypted_batch = nullptr;
+
+    // check if we need to remove from watch-only
+    CScript script;
+    script = GetScriptForDestination(PKHash(pubkey));
+    if (HaveWatchOnly(script)) {
+        // [ RemoveWatchOnly removes from setWatchOnly and mapWatchKeys. ]
+        RemoveWatchOnly(script);
+    }
+    script = GetScriptForRawPubKey(pubkey);
+    if (HaveWatchOnly(script)) {
+        RemoveWatchOnly(script);
+    }
+
+    m_storage.UnsetBlankWalletFlag(batch);
+    if (!m_storage.HasEncryptionKeys()) {
+        return batch.WriteKey(pubkey,
+                                 secret.GetPrivKey(),
+                                 mapKeyMetadata[pubkey.GetID()]);
+    }
+    return true;
+}
+
+
+bool LegacyScriptPubKeyMan::AddKeyPubKeyInner(const CKey& key, const CPubKey &pubkey)
+{
+    LOCK(cs_KeyStore);
+    if (!m_storage.HasEncryptionKeys()) {
+        return FillableSigningProvider::AddKeyPubKey(key, pubkey);
+    }
+
+    if (m_storage.IsLocked()) {
+        return false;
+    }
+
+    std::vector<unsigned char> vchCryptedSecret;
+    CKeyingMaterial vchSecret{UCharCast(key.begin()), UCharCast(key.end())};
+    if (!m_storage.WithEncryptionKey([&](const CKeyingMaterial& encryption_key) {
+            return EncryptSecret(encryption_key, vchSecret, pubkey.GetHash(), vchCryptedSecret);
+        })) {
+        return false;
+    }
+
+    // [ behavior is almost identical to unencrypted invocation of fillable add
+    //   key above, so I'll just look at that for comprehension. ]
+    if (!AddCryptedKey(pubkey, vchCryptedSecret)) {
+        return false;
+    }
+    return true;
+}
+
+
+
+
+```
+
+
+-----
 
 
 
