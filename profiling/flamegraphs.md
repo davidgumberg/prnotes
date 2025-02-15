@@ -111,7 +111,7 @@ So, compile with `-fno-omit-frame-pointer`, or if you don't like that run `perf`
 with `--call-graph dwarf`. (Overrides the default `--call-graph fp`)
 
 ```bash
-$ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPPEND_CPPFLAGS="-fno-omit-frame-pointer"
+$ cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPPEND_CPPFLAGS="-fno-omit-frame-pointer" -DBUILD_BENCH=ON
 ```
 
 <details>
