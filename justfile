@@ -26,7 +26,7 @@ review pr_number:
 
 	cat > $output_file <<- HEREDOC
 	# [#${pr_number}](${pr_url}) ${pr_title}
-	_All code comments in `[]` are my own._
+	_All code comments in \`\[\]\` are my own._
 
 	## Background
 
