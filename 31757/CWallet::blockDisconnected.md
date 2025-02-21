@@ -346,7 +346,9 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxS
     {
         AssertLockHeld(cs_wallet);
 
-        // [ If we're adding a confirmed tx to the wallet... ]
+        // [ If we're adding a tx with the confirmed state to the wallet, loop
+        //   through each vin and check to see if we have any other transactions
+        //   that would spend the same vin, and mark them as conflicted. ]
         if (auto* conf = std::get_if<TxStateConfirmed>(&state)) {
             // [ iterate each vin ]
             for (const CTxIn& txin : tx.vin) {
@@ -366,14 +368,17 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxS
                         //   expected when e.g. rbf'ing. ]
                         WalletLogPrintf("Transaction %s (in block %s) conflicts with wallet transaction %s (both spend %s:%i)\n", tx.GetHash().ToString(), conf->confirmed_block_hash.ToString(), range.first->second.ToString(), range.first->first.hash.ToString(), range.first->first.n);
                         // [ mark the block where the conflicting tx appears,
-                        //   hash height, he
+                        //   hash, height, conflicting tx's wtxid. ]
                         MarkConflicted(conf->confirmed_block_hash, conf->confirmed_block_height, range.first->second);
                     }
+                    // [ I think less confusing as a for loop, this would be. ]
                     range.first++;
                 }
             }
         }
 
+        // [ We may have already known about this tx, e.g. if we created it
+        //   using a wallet rpc. ]
         bool fExisted = mapWallet.count(tx.GetHash()) != 0;
         if (fExisted && !fUpdate) return false;
         if (fExisted || IsMine(tx) || IsFromMe(tx))
@@ -387,6 +392,9 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const SyncTxS
             // loop though all outputs
             for (const CTxOut& txout: tx.vout) {
                 for (const auto& spk_man : GetScriptPubKeyMans(txout.scriptPubKey)) {
+                    // [ m_map_pubkeys contains more than the current indexed
+                    //   key, but they should be unused, mark them as such and
+                    //   skip them. ]
                     for (auto &dest : spk_man->MarkUnusedAddresses(txout.scriptPubKey)) {
                         // If internal flag is not defined try to infer it from the ScriptPubKeyMan
                         if (!dest.internal.has_value()) {
