@@ -135,7 +135,14 @@ sudo sysctl kernel.perf_event_paranoid=-1
 You will also need kernel debug symbols:
 
 ```bash
-# Install kernel debug symbols on Debian.
+# Set up debug symbols repo on Ubuntu
+sudo apt install ubuntu-dbgsym-keyring
+echo "deb http://ddebs.ubuntu.com $(lsb_release -cs) main restricted universe multiverse
+deb http://ddebs.ubuntu.com $(lsb_release -cs)-updates main restricted universe multiverse
+deb http://ddebs.ubuntu.com $(lsb_release -cs)-proposed main restricted universe multiverse" | \
+sudo tee -a /etc/apt/sources.list.d/ddebs.list
+
+# Install kernel debug symbols on Ubuntu and Debian.
 sudo apt-get install linux-image-`uname -r`-dbg
 
 # Install kernel debug symbols on Fedora.
