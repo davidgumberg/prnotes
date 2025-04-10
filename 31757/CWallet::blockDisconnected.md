@@ -97,8 +97,6 @@ public:
 
 Nah nevermind I won't keep digging here,
 
-
-
 </details>
 
 A class that implements the Chain::Notifications interface can register itself
@@ -184,8 +182,6 @@ class Wallet {
     TxSpends mapTxSpends GUARDED_BY(cs_wallet);
     void AddToSpends(const CWalletTx& wtx, WalletBatch* batch = nullptr);
 }
-
-
 
 void CWallet::blockDisconnected(const interfaces::BlockInfo& block)
 {
