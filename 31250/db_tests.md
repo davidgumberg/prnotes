@@ -1,0 +1,80 @@
+BOOST_FIXTURE_TEST_SUITE(db_tests, BasicTestingSetup)
+
+#ifdef USE_BDB
+// [ Helper to create and return a BerkeleyEnvironment object for a certain db file, and by reference returns the db filename. ]
+static std::shared_ptr<BerkeleyEnvironment> GetWalletEnv(const fs::path& path, fs::path& database_filename)
+{
+    fs::path data_file = BDBDataFile(path);
+    database_filename = data_file.filename();
+    return GetBerkeleyEnv(data_file.parent_path(), false);
+}
+
+
+// [ Checks that an empty file gets the right filename and directory. ]
+BOOST_AUTO_TEST_CASE(getwalletenv_file)
+{
+    // [ Create an empty db file. ]
+    fs::path test_name = "test_name.dat";
+    const fs::path datadir = m_args.GetDataDirNet();
+    fs::path file_path = datadir / test_name;
+    std::ofstream f{file_path};
+    f.close();
+
+    // [ Create a wallet environment. ]
+    fs::path filename;
+    std::shared_ptr<BerkeleyEnvironment> env = GetWalletEnv(file_path, filename);
+
+    // [ Check the filename. ]
+    BOOST_CHECK_EQUAL(filename, test_name);
+    // [ Check the directory is right, this test seems to always have been a bit undertesting,
+    //   since it could be a coincidence that the wallet dir matches the datadir, no? ]
+    BOOST_CHECK_EQUAL(env->Directory(), datadir);
+}
+
+// [ Same test as above, but test wallet env from just a directory rather than a full path. ]
+BOOST_AUTO_TEST_CASE(getwalletenv_directory)
+{
+    fs::path expected_name = "wallet.dat";
+    const fs::path datadir = m_args.GetDataDirNet();
+
+    fs::path filename;
+    std::shared_ptr<BerkeleyEnvironment> env = GetWalletEnv(datadir, filename);
+    BOOST_CHECK_EQUAL(filename, expected_name);
+    BOOST_CHECK_EQUAL(env->Directory(), datadir);
+}
+
+// [ Create 3 env's, two with the same dir, one with another, check the equality of the environments. ]
+BOOST_AUTO_TEST_CASE(getwalletenv_g_dbenvs_multiple)
+{
+    fs::path datadir = m_args.GetDataDirNet() / "1";
+    fs::path datadir_2 = m_args.GetDataDirNet() / "2";
+    fs::path filename;
+
+    std::shared_ptr<BerkeleyEnvironment> env_1 = GetWalletEnv(datadir, filename);
+    std::shared_ptr<BerkeleyEnvironment> env_2 = GetWalletEnv(datadir, filename);
+    std::shared_ptr<BerkeleyEnvironment> env_3 = GetWalletEnv(datadir_2, filename);
+
+    BOOST_CHECK(env_1 == env_2);
+    BOOST_CHECK(env_2 != env_3);
+}
+
+// [ I believe this is a memory check that no lingering reference gets made in wallet env creation. ]
+BOOST_AUTO_TEST_CASE(getwalletenv_g_dbenvs_free_instance)
+{
+    fs::path datadir = gArgs.GetDataDirNet() / "1";
+    fs::path datadir_2 = gArgs.GetDataDirNet() / "2";
+    fs::path filename;
+
+    std::shared_ptr <BerkeleyEnvironment> env_1_a = GetWalletEnv(datadir, filename);
+    std::shared_ptr <BerkeleyEnvironment> env_2_a = GetWalletEnv(datadir_2, filename);
+    env_1_a.reset();
+
+    std::shared_ptr<BerkeleyEnvironment> env_1_b = GetWalletEnv(datadir, filename);
+    std::shared_ptr<BerkeleyEnvironment> env_2_b = GetWalletEnv(datadir_2, filename);
+
+    BOOST_CHECK(env_1_a != env_1_b);
+    BOOST_CHECK(env_2_a == env_2_b);
+}
+#endif
+
+
