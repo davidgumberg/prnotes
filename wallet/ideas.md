@@ -48,4 +48,4 @@
 - [ ] LoadCryptedKey in `src/wallet/walletdb.cpp` is only for legacy /
   migration.
 - [ ] Delete settxfee and paytxfee rpc's.
-    [ ] [#32138](https://github.com/bitcoin/bitcoin/pull/32138)
+    - [ ] [#32138](https://github.com/bitcoin/bitcoin/pull/32138)
