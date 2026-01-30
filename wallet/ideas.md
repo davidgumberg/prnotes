@@ -13,6 +13,7 @@
     - [ ] Wallet loading should be RAII, instead of being initialized and then loading more stuff later
         - Generally a problem for older stuff
     - [ ] Create/LoadWallet Refactor #32636
+        [ ] [#32636](https://github.com/bitcoin/bitcoin/pull/32636)
     - [ ] postInitProcess should perhaps be folded into a multi wallet loading function
 
 - [ ] Pull out AddrBook into separate Class extracting all the relevant methods
@@ -29,7 +30,8 @@
     - Seems ancient, probably comment should be updated, needs to be investigated
 - [ ] move locked_coins onto wallet txos?
     - Might break the ability to lock a UTXO before it is created
-- [ ] Document / deduplicate HasEncryptionKeys <-> IsCrypted also look at
+- [x] Document / deduplicate HasEncryptionKeys <-> IsCrypted also look at
+    - [x] [#34147](https://github.com/bitcoin/bitcoin/pull/34147)
   HaveCryptedKeys
 - [ ] ComputeTimeSmart(…)
     - Method that could be extracted as a function
@@ -43,3 +45,5 @@
 - [ ] Maybe GetName is obsolete in lieu of LogName
 - [ ] GetActiveHDPubKeys should not be returning a set, it's only caller expects
   and checks for exactly one item in the set.
+- [ ] LoadCryptedKey in `src/wallet/walletdb.cpp` is only for legacy /
+  migration.
