@@ -28,3 +28,7 @@ The server publishes a message "Hey, this is the latest task." and all connected
 ## Security
 
 The clients should authenticate the server since the server can make the clients run arbitrary code, the server can attach some unique id for each job that it assigns and only listen to reports for jobs that it assigned, and doesn't need to authenticate clients. The worst thing that can happen in this scenario, is a misbehaving client could make false reports to the server about the results of others' runs, but the server would receive multiple reports so it would be obvious that something was wrong.
+
+# Solution
+
+Benchkit already provides a standardized way of defining IBD benchmark jobs.
